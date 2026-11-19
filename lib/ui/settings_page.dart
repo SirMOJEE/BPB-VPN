@@ -107,6 +107,14 @@ class SettingsPage extends StatelessWidget {
           SettingsCard(
             children: [
               const TextPref(
+                'general.remoteDns',
+                'Remote DNS',
+                icon: Symbols.outbound_rounded,
+                hint: 'IPv4 or IPv6',
+                help: 'Resolves foreign domains and can be a DoH or TCP DNS.',
+                validator: validateRemoteDns,
+              ),
+              const TextPref(
                 'general.localDns',
                 'Local DNS',
                 icon: Symbols.home_rounded,
@@ -219,13 +227,6 @@ class SettingsPage extends StatelessWidget {
           SettingsCard(
             children: [
               const _DeploymentTile(),
-              const TextPref(
-                'vless.remoteDns.server',
-                'Remote DNS',
-                icon: Symbols.outbound_rounded,
-                help: 'Resolves foreign domains for routing and can be a DoH or TCP DNS.',
-                validator: validateRemoteDns,
-              ),
               const MultiIntPref(
                 'vless.ports',
                 'Ports',
@@ -378,14 +379,6 @@ class SettingsPage extends StatelessWidget {
           SettingsCard(
             children: [
               const TextPref(
-                'masque.remoteDns',
-                'Remote DNS',
-                icon: Symbols.outbound_rounded,
-                hint: '1.1.1.1',
-                help: 'It can be an UDP DNS, TCP DNS or DoH.',
-                validator: validateTunnelDns,
-              ),
-              const TextPref(
                 'masque.sni',
                 'SNI',
                 icon: Symbols.host_rounded,
@@ -473,14 +466,6 @@ class SettingsPage extends StatelessWidget {
           const SectionHeader('WARP'),
           SettingsCard(
             children: [
-              const TextPref(
-                'warp.remoteDns',
-                'Remote DNS',
-                icon: Symbols.outbound_rounded,
-                hint: '1.1.1.1',
-                help: 'It can be a UDP DNS, TCP DNS or DoH.',
-                validator: validateTunnelDns,
-              ),
               const SwitchPref(
                 'warp.enableReservedBytes',
                 'Reserved bytes',

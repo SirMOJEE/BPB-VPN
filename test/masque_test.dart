@@ -301,7 +301,6 @@ void main() {
             'dns': '8.8.8.8',
           }, // saved before ECH was dropped: ignored
           'sni': 'masque.example.com',
-          'remoteDns': '9.9.9.9',
           'speedTestInterval': 30,
         }),
       );
@@ -309,43 +308,9 @@ void main() {
           proxies(b.config).first['streamSettings']['tlsSettings'] as Map;
       expect(tls['serverName'], 'masque.example.com');
       expect(tls.containsKey('echConfigList'), isFalse);
-      final remote = (b.config['dns']['servers'] as List)
-          .whereType<Map>()
-          .firstWhere((s) => s['tag'] == 'remote-dns');
-      expect(remote['address'], '9.9.9.9');
       expect(b.config['burstObservatory']['pingConfig']['interval'], '30s');
     },
   );
-
-  test('remote DNS by domain: its IPs in hosts, so reaching it needs no DNS; anti-sanction DoQ as quic+local', () async {
-    final c = await XrayConfigBuilder(
-      Profile.fromJson({
-        ...masque({'remoteDns': 'https://dns.google/dns-query'}),
-        'general': {'antiSanctionDns': 'quic://dns.adguard-dns.com'},
-        'routing': {
-          'sanctionBypass': {
-            'presets': {'openAi': true},
-          },
-        },
-      }),
-      DeviceSettings.fromJson(const {
-        'connection': {'masqueVariant': 'normal'},
-      }),
-      resolver: (host, {required bool ipv6}) async =>
-          host == 'dns.google' ? const ['8.8.8.8', '8.8.4.4'] : const [],
-    ).build(ConnectionMode.masque);
-    final dns = c.config['dns'] as Map;
-    expect(dns['hosts']['dns.google'], ['8.8.8.8', '8.8.4.4']);
-    final servers = (dns['servers'] as List).whereType<Map>();
-    expect(
-      servers.firstWhere((s) => s['tag'] == 'remote-dns')['address'],
-      'https://dns.google/dns-query',
-    );
-    expect(
-      servers.map((s) => s['address']),
-      contains('quic+local://dns.adguard-dns.com'),
-    );
-  });
 
   test('needs an account and an endpoint IPv4 can use', () async {
     final noAccount = XrayConfigBuilder(

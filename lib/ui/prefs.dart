@@ -205,62 +205,26 @@ String? validateHostPort(String v, {bool requirePort = false}) {
 String? validateEndpoint(String v) => validateHostPort(v, requirePort: true);
 
 String? validateCleanIps(List<String> values) =>
-    values.any((v) => InternetAddress.tryParse(v)?.type == InternetAddressType.IPv4)
+    values.any(
+      (v) => InternetAddress.tryParse(v)?.type == InternetAddressType.IPv4,
+    )
     ? null
     : 'Add at least one IPv4 address';
 
 String? validateIpv4Endpoints(List<String> values) {
-  final count = values.where((v) {
-    if (validateEndpoint(v) != null) return false;
-    final host = v.substring(0, v.lastIndexOf(':'));
-    return InternetAddress.tryParse(host)?.type == InternetAddressType.IPv4;
-  }).toSet().length;
+  final count = values
+      .where((v) {
+        if (validateEndpoint(v) != null) return false;
+        final host = v.substring(0, v.lastIndexOf(':'));
+        return InternetAddress.tryParse(host)?.type == InternetAddressType.IPv4;
+      })
+      .toSet()
+      .length;
   return count >= 2 ? null : 'Add at least two IPv4 endpoints';
 }
 
-// DNS validators follow BPB panel's (src/settings/validators.ts); IPv6 bare, as everywhere
-// without a port.
-
-/// Cloudflare's DNS: a worker can't reach Cloudflare's own addresses (BPB's list).
-const _cloudflareDns = {
-  '1.1.1.1', '1.0.0.1', '1.1.1.2', '1.0.0.2', '1.1.1.3', '1.0.0.3', //
-  '2606:4700:4700::1111', '2606:4700:4700::1001', '2606:4700:4700::1112', //
-  '2606:4700:4700::1002', '2606:4700:4700::1113', '2606:4700:4700::1003', //
-  'one.one.one.one',
-  '1dot1dot1dot1',
-  'cloudflare-dns.com',
-  'family.cloudflare-dns.com', //
-  'security.cloudflare-dns.com',
-};
-
-/// VLESS remote DNS (BPB's validateRemoteDNS, stricter, and without DoT, which Xray's DNS
-/// doesn't have): https://host/dns-query or tcp://host, the host a domain or IP (IPv6 in
-/// brackets), with an optional port; through the worker, so not Cloudflare's.
-String? validateRemoteDns(String v) {
-  final uri = Uri.tryParse(v);
-  if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
-    return 'Invalid DoH, Please enter a valid URL.';
-  }
-  if (!const {'tcp', 'https'}.contains(uri.scheme)) {
-    return 'It can be only TCP or DoH servers.';
-  }
-  if (!isDomain(uri.host) && !isIp(uri.host)) {
-    return 'The host should be a domain or IP.';
-  }
-  if (uri.userInfo.isNotEmpty || uri.hasQuery || uri.hasFragment) {
-    return 'Use https://host/dns-query or tcp://host.';
-  }
-  if (uri.scheme == 'https' && !_isDoh(uri)) {
-    return 'DoH should be like https://dns.example/dns-query';
-  }
-  if (uri.scheme != 'https' && uri.path.isNotEmpty && uri.path != '/') {
-    return 'Use tcp://host, without a path.';
-  }
-  if (_cloudflareDns.contains(uri.host)) {
-    return 'Cloudflare DNS is not allowed for workers. Please use other public DNS servers like Google, Adguard...';
-  }
-  return null;
-}
+String? validateRemoteDns(String v) =>
+    isIp(v) ? null : 'Use an IPv4 or IPv6 DNS';
 
 /// Anti-sanction DNS (used directly): an IP (UDP DNS), tcp://host, quic://host (DoQ) or a
 /// standard DoH (https://host/…/dns-query).
@@ -268,13 +232,6 @@ String? validateSanctionDns(String v) =>
     isIp(v) || _isDnsUrl(v, const {'https', 'tcp', 'quic'})
     ? null
     : 'Use an IP, tcp://host, quic://host or https://host/dns-query';
-
-/// WARP / MASQUE remote DNS (through the tunnel): an IP (UDP DNS), tcp://host or a standard DoH.
-/// No QUIC: Xray only has DoQ in local mode, which wouldn't go through the tunnel.
-String? validateTunnelDns(String v) =>
-    isIp(v) || _isDnsUrl(v, const {'https', 'tcp'})
-    ? null
-    : 'Use an IP, tcp://host or https://host/dns-query';
 
 String? validateHttpsUrl(String v) {
   final uri = Uri.tryParse(v);

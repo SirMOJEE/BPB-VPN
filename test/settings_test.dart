@@ -369,9 +369,6 @@ void main() {
       'cleanIps': ['1.1.1.1'],
     });
     expect(exported.containsKey('warp'), isFalse);
-    expect(p.updated('warp.remoteDns', '9.9.9.9').toExportJson()['warp'], {
-      'remoteDns': '9.9.9.9',
-    });
   });
 
   test('ECH export keeps DNS but drops the removed SNI setting', () {

@@ -30,17 +30,22 @@ class CloudflareApi {
 
   /// The bundled worker's version, bumped with every change to worker/worker.js; deployments
   /// older than [minWorkerVersion] are redeployed automatically, the rest offer an update.
-  static const workerVersion = 2;
-  static const minWorkerVersion = 2;
+  static const workerVersion = 3;
+  static const minWorkerVersion = 3;
 
   /// The worker's only binding (plain text): base64 of a JSON object, see [encodeEnv].
   static const envVar = 'ENV';
 
   /// ENV's value: `{v, id, pips, fb}` as JSON, base64.
-  static String encodeEnv({required String uuid, required List<String> proxyIps, required String fallbackUrl}) =>
-      base64.encode(
-        utf8.encode(jsonEncode({'v': 1, 'id': uuid, 'pips': proxyIps, 'fb': fallbackUrl})),
-      );
+  static String encodeEnv({
+    required String uuid,
+    required List<String> proxyIps,
+    required String fallbackUrl,
+  }) => base64.encode(
+    utf8.encode(
+      jsonEncode({'v': 1, 'id': uuid, 'pips': proxyIps, 'fb': fallbackUrl}),
+    ),
+  );
 
   /// Token creation page with the permissions pre-selected (same set as BPB-Wizard).
   static String tokenCreationUrl() {
@@ -82,7 +87,9 @@ class CloudflareApi {
       );
     }
     if (token.length < 30) {
-      throw const CloudflareException("That doesn't look like a Cloudflare API token. Copy the token itself.");
+      throw const CloudflareException(
+        "That doesn't look like a Cloudflare API token. Copy the token itself.",
+      );
     }
     return token;
   }
@@ -90,14 +97,23 @@ class CloudflareApi {
   final String token;
   final http.Client _client;
 
-  CloudflareApi(String token, {http.Client? client}) : token = normalizeToken(token), _client = client ?? CloudflareClient();
+  CloudflareApi(String token, {http.Client? client})
+    : token = normalizeToken(token),
+      _client = client ?? CloudflareClient();
 
   void close() => _client.close();
 
   Map<String, String> get _auth => {'Authorization': 'Bearer $token'};
 
-  Future<dynamic> _send(String method, String path, {Object? json, String? body, String? contentType}) async {
-    final request = http.Request(method, Uri.parse('$_base$path'))..headers.addAll(_auth);
+  Future<dynamic> _send(
+    String method,
+    String path, {
+    Object? json,
+    String? body,
+    String? contentType,
+  }) async {
+    final request = http.Request(method, Uri.parse('$_base$path'))
+      ..headers.addAll(_auth);
     if (json != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(json);
@@ -105,13 +121,26 @@ class CloudflareApi {
       request.headers['Content-Type'] = contentType ?? 'text/plain';
       request.body = body;
     }
-    return _decode(await http.Response.fromStream(await _client.send(request).timeout(const Duration(seconds: 30))));
+    return _decode(
+      await http.Response.fromStream(
+        await _client.send(request).timeout(const Duration(seconds: 30)),
+      ),
+    );
   }
 
-  Future<dynamic> _sendMultipart(String method, String path, void Function(http.MultipartRequest) build) async {
-    final request = http.MultipartRequest(method, Uri.parse('$_base$path'))..headers.addAll(_auth);
+  Future<dynamic> _sendMultipart(
+    String method,
+    String path,
+    void Function(http.MultipartRequest) build,
+  ) async {
+    final request = http.MultipartRequest(method, Uri.parse('$_base$path'))
+      ..headers.addAll(_auth);
     build(request);
-    return _decode(await http.Response.fromStream(await _client.send(request).timeout(const Duration(seconds: 90))));
+    return _decode(
+      await http.Response.fromStream(
+        await _client.send(request).timeout(const Duration(seconds: 90)),
+      ),
+    );
   }
 
   dynamic _decode(http.Response response) {
@@ -123,14 +152,26 @@ class CloudflareApi {
     }
     if (data != null && data['success'] == true) return data['result'];
     // Some endpoints (e.g. deleting a Workers custom domain) answer 2xx with an empty body.
-    if (data == null && response.statusCode >= 200 && response.statusCode < 300) return null;
+    if (data == null && response.statusCode >= 200 && response.statusCode < 300) {
+      return null;
+    }
     String describe(Map e) {
-      final chain = (e['error_chain'] as List? ?? const []).whereType<Map>().map(describe).join(', ');
+      final chain = (e['error_chain'] as List? ?? const [])
+          .whereType<Map>()
+          .map(describe)
+          .join(', ');
       return '${e['message']}${e['code'] != null ? ' (${e['code']})' : ''}${chain.isNotEmpty ? ': $chain' : ''}';
     }
 
-    final errors = (data?['errors'] as List? ?? const []).whereType<Map>().map(describe).join('; ');
-    throw CloudflareException(errors.isNotEmpty ? errors : 'Cloudflare API error ${response.statusCode}');
+    final errors = (data?['errors'] as List? ?? const [])
+        .whereType<Map>()
+        .map(describe)
+        .join('; ');
+    throw CloudflareException(
+      errors.isNotEmpty
+          ? errors
+          : 'Cloudflare API error ${response.statusCode}',
+    );
   }
 
   /// Email of the token's user (needs User Details: Read), or '' if not available.
@@ -145,7 +186,10 @@ class CloudflareApi {
 
   Future<List<CfAccount>> accounts() async {
     final result = await _send('GET', '/accounts?per_page=50') as List;
-    return result.whereType<Map>().map((a) => CfAccount('${a['id']}', '${a['name']}')).toList();
+    return result
+        .whereType<Map>()
+        .map((a) => CfAccount('${a['id']}', '${a['name']}'))
+        .toList();
   }
 
   // region workers
@@ -153,19 +197,30 @@ class CloudflareApi {
   /// Returns the account's workers.dev subdomain, registering a random one if it has none yet.
   Future<String> ensureSubdomain(String accountId) async {
     try {
-      final result = await _send('GET', '/accounts/$accountId/workers/subdomain') as Map;
+      final result =
+          await _send('GET', '/accounts/$accountId/workers/subdomain') as Map;
       final sub = '${result['subdomain'] ?? ''}';
       if (sub.isNotEmpty) return sub;
     } on CloudflareException catch (e) {
-      if (!e.message.contains('10007')) rethrow; // 10007: no subdomain registered
+      if (!e.message.contains('10007')) {
+        rethrow; // 10007: no subdomain registered
+      }
     }
     final name = _randomName(10);
-    final result = await _send('PUT', '/accounts/$accountId/workers/subdomain', json: {'subdomain': name}) as Map;
+    final result = await _send(
+      'PUT',
+      '/accounts/$accountId/workers/subdomain',
+      json: {'subdomain': name},
+    ) as Map;
     return '${result['subdomain']}';
   }
 
   /// Uploads the worker script with its ENV binding (replacing every other binding).
-  Future<void> uploadScript(String accountId, String scriptName, String env) async {
+  Future<void> uploadScript(
+    String accountId,
+    String scriptName,
+    String env,
+  ) async {
     final script = await rootBundle.loadString(workerAsset);
     final metadata = {
       'main_module': 'worker.js',
@@ -174,24 +229,28 @@ class CloudflareApi {
         {'type': 'plain_text', 'name': envVar, 'text': env},
       ],
     };
-    await _sendMultipart('PUT', '/accounts/$accountId/workers/scripts/$scriptName', (r) {
-      r.files
-        ..add(
-          http.MultipartFile.fromString(
-            'metadata',
-            jsonEncode(metadata),
-            contentType: MediaType('application', 'json'),
-          ),
-        )
-        ..add(
-          http.MultipartFile.fromString(
-            'worker.js',
-            script,
-            filename: 'worker.js',
-            contentType: MediaType('application', 'javascript+module'),
-          ),
-        );
-    });
+    await _sendMultipart(
+      'PUT',
+      '/accounts/$accountId/workers/scripts/$scriptName',
+      (r) {
+        r.files
+          ..add(
+            http.MultipartFile.fromString(
+              'metadata',
+              jsonEncode(metadata),
+              contentType: MediaType('application', 'json'),
+            ),
+          )
+          ..add(
+            http.MultipartFile.fromString(
+              'worker.js',
+              script,
+              filename: 'worker.js',
+              contentType: MediaType('application', 'javascript+module'),
+            ),
+          );
+      },
+    );
   }
 
   Future<void> enableWorkersDev(String accountId, String scriptName) => _send(
@@ -204,14 +263,22 @@ class CloudflareApi {
   ///
   /// Only needs "Workers Scripts: Edit". The zone is passed by name, trying the
   /// hostname's parent domains (longest first), so no zone-read permission is needed.
-  Future<void> _attachWorkerDomain(String accountId, String scriptName, String hostname) async {
+  Future<void> _attachWorkerDomain(
+    String accountId,
+    String scriptName,
+    String hostname,
+  ) async {
     CloudflareException? lastError;
     for (final zoneName in _zoneCandidates(hostname)) {
       try {
         await _send(
           'PUT',
           '/accounts/$accountId/workers/domains',
-          json: {'hostname': hostname, 'service': scriptName, 'zone_name': zoneName},
+          json: {
+            'hostname': hostname,
+            'service': scriptName,
+            'zone_name': zoneName,
+          },
         );
         return;
       } on CloudflareException catch (e) {
@@ -225,13 +292,19 @@ class CloudflareApi {
     );
   }
 
-  Future<void> _detachWorkerDomain(String accountId, String scriptName, String hostname) async {
+  Future<void> _detachWorkerDomain(
+    String accountId,
+    String scriptName,
+    String hostname,
+  ) async {
     final domains = await _send(
       'GET',
       '/accounts/$accountId/workers/domains?hostname=${Uri.encodeQueryComponent(hostname)}'
           '&service=${Uri.encodeQueryComponent(scriptName)}',
     ) as List;
-    for (final d in domains.whereType<Map>().where((d) => '${d['hostname']}' == hostname)) {
+    for (final d in domains.whereType<Map>().where(
+      (d) => '${d['hostname']}' == hostname,
+    )) {
       await _send('DELETE', '/accounts/$accountId/workers/domains/${d['id']}');
     }
   }
@@ -241,59 +314,105 @@ class CloudflareApi {
   // region pages
 
   /// Direct-upload deployment of the worker as Pages' `_worker.js`.
-  Future<void> uploadPagesDeployment(String accountId, String projectName) async {
+  Future<void> uploadPagesDeployment(
+    String accountId,
+    String projectName,
+  ) async {
     final script = await rootBundle.loadString(workerAsset);
-    await _sendMultipart('POST', '/accounts/$accountId/pages/projects/$projectName/deployments', (r) {
-      r.fields['manifest'] = '{}';
-      r.fields['branch'] = 'main';
-      r.files.add(
-        http.MultipartFile.fromString(
-          '_worker.js',
-          script,
-          filename: '_worker.js',
-          contentType: MediaType('application', 'javascript'),
-        ),
-      );
-    });
+    await _sendMultipart(
+      'POST',
+      '/accounts/$accountId/pages/projects/$projectName/deployments',
+      (r) {
+        r.fields['manifest'] = '{}';
+        r.fields['branch'] = 'main';
+        r.files.add(
+          http.MultipartFile.fromString(
+            '_worker.js',
+            script,
+            filename: '_worker.js',
+            contentType: MediaType('application', 'javascript'),
+          ),
+        );
+      },
+    );
   }
 
   /// Pages custom domain: add it to the project and point a proxied CNAME at its [target]
   /// (*.pages.dev) host.
-  Future<void> _attachPagesDomain(String accountId, String projectName, String target, String hostname) async {
+  Future<void> _attachPagesDomain(
+    String accountId,
+    String projectName,
+    String target,
+    String hostname,
+  ) async {
     final zoneId = await _zoneIdFor(hostname);
-    await _send('POST', '/accounts/$accountId/pages/projects/$projectName/domains', json: {'name': hostname});
+    await _send(
+      'POST',
+      '/accounts/$accountId/pages/projects/$projectName/domains',
+      json: {'name': hostname},
+    );
 
-    final records = await _send('GET', '/zones/$zoneId/dns_records?name=${Uri.encodeQueryComponent(hostname)}') as List;
+    final records = await _send(
+      'GET',
+      '/zones/$zoneId/dns_records?name=${Uri.encodeQueryComponent(hostname)}',
+    ) as List;
     final existing = records.whereType<Map>().toList();
-    final record = {'type': 'CNAME', 'name': hostname, 'content': target, 'proxied': true, 'ttl': 1};
+    final record = {
+      'type': 'CNAME',
+      'name': hostname,
+      'content': target,
+      'proxied': true,
+      'ttl': 1,
+    };
     final cname = existing.where((r) => r['type'] == 'CNAME').firstOrNull;
     if (cname != null) {
-      await _send('PUT', '/zones/$zoneId/dns_records/${cname['id']}', json: record);
+      await _send(
+        'PUT',
+        '/zones/$zoneId/dns_records/${cname['id']}',
+        json: record,
+      );
     } else if (existing.any((r) => r['type'] == 'A' || r['type'] == 'AAAA')) {
-      throw CloudflareException('$hostname already has an A/AAAA record. Remove it in the Cloudflare dashboard first.');
+      throw CloudflareException(
+        '$hostname already has an A/AAAA record. Remove it in the Cloudflare dashboard first.',
+      );
     } else {
       await _send('POST', '/zones/$zoneId/dns_records', json: record);
     }
   }
 
-  Future<void> _detachPagesDomain(String accountId, String projectName, String target, String hostname) async {
+  Future<void> _detachPagesDomain(
+    String accountId,
+    String projectName,
+    String target,
+    String hostname,
+  ) async {
     try {
-      await _send('DELETE', '/accounts/$accountId/pages/projects/$projectName/domains/$hostname');
+      await _send(
+        'DELETE',
+        '/accounts/$accountId/pages/projects/$projectName/domains/$hostname',
+      );
     } on CloudflareException catch (e) {
       if (_isAuthError(e)) rethrow; // Otherwise it was already removed.
     }
     final zoneId = await _zoneIdFor(hostname);
-    final records =
-        await _send('GET', '/zones/$zoneId/dns_records?type=CNAME&name=${Uri.encodeQueryComponent(hostname)}') as List;
+    final records = await _send(
+      'GET',
+      '/zones/$zoneId/dns_records?type=CNAME&name=${Uri.encodeQueryComponent(hostname)}',
+    ) as List;
     // Only remove the record we created (pointing at this project).
-    for (final r in records.whereType<Map>().where((r) => '${r['content']}' == target)) {
+    for (final r in records.whereType<Map>().where(
+      (r) => '${r['content']}' == target,
+    )) {
       await _send('DELETE', '/zones/$zoneId/dns_records/${r['id']}');
     }
   }
 
   Future<String> _zoneIdFor(String hostname) async {
     for (final name in _zoneCandidates(hostname)) {
-      final zones = await _send('GET', '/zones?name=${Uri.encodeQueryComponent(name)}') as List;
+      final zones = await _send(
+        'GET',
+        '/zones?name=${Uri.encodeQueryComponent(name)}',
+      ) as List;
       if (zones.isNotEmpty) return '${(zones.first as Map)['id']}';
     }
     throw CloudflareException(
@@ -308,7 +427,10 @@ class CloudflareApi {
 
   /// Workers requests in the last 24 hours (BPB's GraphQL query): account total and,
   /// when [scriptName] is given, that worker alone. Free plan limit: 100,000 per day.
-  Future<({int total, int worker})> workerUsage(String accountId, String scriptName) async {
+  Future<({int total, int worker})> workerUsage(
+    String accountId,
+    String scriptName,
+  ) async {
     final end = DateTime.now().toUtc();
     final start = end.subtract(const Duration(hours: 24));
     final request = http.Request('POST', Uri.parse('$_base/graphql'))
@@ -337,17 +459,29 @@ class CloudflareApi {
           'end': end.toIso8601String(),
         },
       });
-    final response = await http.Response.fromStream(await _client.send(request).timeout(const Duration(seconds: 30)));
+    final response = await http.Response.fromStream(
+      await _client.send(request).timeout(const Duration(seconds: 30)),
+    );
     final Map<String, dynamic> data;
     try {
       data = jsonDecode(response.body) as Map<String, dynamic>;
     } catch (_) {
-      throw CloudflareException('Usage query failed (HTTP ${response.statusCode})');
+      throw CloudflareException(
+        'Usage query failed (HTTP ${response.statusCode})',
+      );
     }
-    final errors = (data['errors'] as List? ?? const []).whereType<Map>().map((e) => '${e['message']}').toList();
-    if (errors.isNotEmpty) throw CloudflareException('Usage query failed: ${errors.join('; ')}');
-    final account = ((data['data'] as Map?)?['viewer'] as Map?)?['accounts'] as List?;
-    if (account == null || account.isEmpty) throw const CloudflareException('No usage data for this account');
+    final errors = (data['errors'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => '${e['message']}')
+        .toList();
+    if (errors.isNotEmpty) {
+      throw CloudflareException('Usage query failed: ${errors.join('; ')}');
+    }
+    final account =
+        ((data['data'] as Map?)?['viewer'] as Map?)?['accounts'] as List?;
+    if (account == null || account.isEmpty) {
+      throw const CloudflareException('No usage data for this account');
+    }
     int sum(Object? rows) => (rows as List? ?? const []).whereType<Map>().fold(
       0,
       (n, r) => n + (((r['sum'] as Map?)?['requests'] as num?)?.toInt() ?? 0),
@@ -388,7 +522,12 @@ class CloudflareApi {
 
   /// Deploys the Pages project [name] with [env]: creates it ([create]) or sets its ENV, then
   /// uploads a deployment (variables only apply to new ones). Returns its pages.dev host.
-  Future<String> deployPages(String accountId, String name, String env, {required bool create}) async {
+  Future<String> deployPages(
+    String accountId,
+    String name,
+    String env, {
+    required bool create,
+  }) async {
     final compatibilityDate = _currentCompatibilityDate();
     final production = {
       'compatibility_date': compatibilityDate,
@@ -403,9 +542,7 @@ class CloudflareApi {
             json: {
               'name': name,
               'production_branch': 'main',
-              'deployment_configs': {
-                'production': production,
-              },
+              'deployment_configs': {'production': production},
             },
           )
         : await _send(
@@ -419,13 +556,16 @@ class CloudflareApi {
     return '${(project as Map)['subdomain']}';
   }
 
-  static String _currentCompatibilityDate() => DateTime.now().toUtc().toIso8601String().substring(0, 10);
+  static String _currentCompatibilityDate() =>
+      DateTime.now().toUtc().toIso8601String().substring(0, 10);
 
-  Future<void> attachCustomDomain(ActiveWorker w, String hostname) => w.type == WorkerType.pages
+  Future<void> attachCustomDomain(ActiveWorker w, String hostname) =>
+      w.type == WorkerType.pages
       ? _attachPagesDomain(w.accountId, w.name, w.host, hostname)
       : _attachWorkerDomain(w.accountId, w.name, hostname);
 
-  Future<void> detachCustomDomain(ActiveWorker w, String hostname) => w.type == WorkerType.pages
+  Future<void> detachCustomDomain(ActiveWorker w, String hostname) =>
+      w.type == WorkerType.pages
       ? _detachPagesDomain(w.accountId, w.name, w.host, hostname)
       : _detachWorkerDomain(w.accountId, w.name, hostname);
 
@@ -445,27 +585,46 @@ class CloudflareApi {
     if (w.type == WorkerType.pages) {
       final domains = <String>{?w.customDomain};
       await ignoringGone(() async {
-        final listed = await _send('GET', '/accounts/${w.accountId}/pages/projects/${w.name}/domains') as List?;
-        domains.addAll((listed ?? const []).whereType<Map>().map((d) => '${d['name']}'));
+        final listed = await _send(
+          'GET',
+          '/accounts/${w.accountId}/pages/projects/${w.name}/domains',
+        ) as List?;
+        domains.addAll(
+          (listed ?? const []).whereType<Map>().map((d) => '${d['name']}'),
+        );
       });
       for (final domain in domains.where((d) => d.isNotEmpty && d != w.host)) {
-        await ignoringGone(() => _detachPagesDomain(w.accountId, w.name, w.host, domain));
+        await ignoringGone(
+          () => _detachPagesDomain(w.accountId, w.name, w.host, domain),
+        );
       }
-      await ignoringGone(() => _send('DELETE', '/accounts/${w.accountId}/pages/projects/${w.name}'));
+      await ignoringGone(
+        () => _send(
+          'DELETE',
+          '/accounts/${w.accountId}/pages/projects/${w.name}',
+        ),
+      );
     } else {
       await ignoringGone(() async {
         final domains =
             await _send(
-                  'GET',
-                  '/accounts/${w.accountId}/workers/domains?service=${Uri.encodeQueryComponent(w.name)}',
-                )
-                as List? ??
+              'GET',
+              '/accounts/${w.accountId}/workers/domains?service=${Uri.encodeQueryComponent(w.name)}',
+            ) as List? ??
             const [];
         for (final d in domains.whereType<Map>()) {
-          await _send('DELETE', '/accounts/${w.accountId}/workers/domains/${d['id']}');
+          await _send(
+            'DELETE',
+            '/accounts/${w.accountId}/workers/domains/${d['id']}',
+          );
         }
       });
-      await ignoringGone(() => _send('DELETE', '/accounts/${w.accountId}/workers/scripts/${w.name}?force=true'));
+      await ignoringGone(
+        () => _send(
+          'DELETE',
+          '/accounts/${w.accountId}/workers/scripts/${w.name}?force=true',
+        ),
+      );
     }
   }
 
@@ -473,17 +632,23 @@ class CloudflareApi {
 
   static List<String> _zoneCandidates(String hostname) {
     final labels = hostname.split('.');
-    return [for (var i = 0; i <= labels.length - 2; i++) labels.sublist(i).join('.')];
+    return [
+      for (var i = 0; i <= labels.length - 2; i++) labels.sublist(i).join('.'),
+    ];
   }
 
   /// The thing asked for doesn't exist (any more).
   static bool _isGone(CloudflareException e) {
     final m = e.message.toLowerCase();
-    return m.contains('not found') || m.contains('not_found') || m.contains('does not exist');
+    return m.contains('not found') ||
+        m.contains('not_found') ||
+        m.contains('does not exist');
   }
 
   static bool _isAuthError(CloudflareException e) =>
-      e.message.contains('(10000)') || e.message.contains('(9109)') || e.message.contains('(6003)');
+      e.message.contains('(10000)') ||
+      e.message.contains('(9109)') ||
+      e.message.contains('(6003)');
 }
 
 final _random = Random.secure();
@@ -491,7 +656,10 @@ final _random = Random.secure();
 /// Random lowercase alphanumeric name.
 String _randomName(int length) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  return List.generate(length, (_) => chars[_random.nextInt(chars.length)]).join();
+  return List.generate(
+    length,
+    (_) => chars[_random.nextInt(chars.length)],
+  ).join();
 }
 
 String generateUuid() {

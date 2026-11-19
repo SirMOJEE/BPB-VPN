@@ -414,6 +414,7 @@ class RuleGroup {
 class GeneralSettings {
   /// "localhost" (the system resolver) or an IP.
   final String localDns;
+  final String remoteDns;
 
   /// An IP, or DoH; a DoH domain is resolved with the local DNS.
   final String antiSanctionDns;
@@ -422,6 +423,7 @@ class GeneralSettings {
   final bool preferIpv6;
 
   const GeneralSettings({
+    this.remoteDns = '1.1.1.1',
     this.localDns = '8.8.8.8',
     this.antiSanctionDns = '178.22.122.100',
     this.enableFakeDns = false,
@@ -433,6 +435,7 @@ class GeneralSettings {
     final j = _map(v);
     const d = GeneralSettings();
     return GeneralSettings(
+      remoteDns: _str(j['remoteDns'], d.remoteDns),
       localDns: _str(j['localDns'], d.localDns),
       antiSanctionDns: _str(
         j['antiSanctionDns'] is Map
@@ -447,6 +450,7 @@ class GeneralSettings {
   }
 
   Map<String, dynamic> toJson() => {
+    'remoteDns': remoteDns,
     'localDns': localDns,
     'antiSanctionDns': antiSanctionDns,
     'enableFakeDns': enableFakeDns,
@@ -527,7 +531,6 @@ class CustomCdnSettings {
 }
 
 class VlessSettings {
-  final DnsServer remoteDns;
   final List<int> ports;
   final List<String> cleanIps;
   final String tlsFingerprint;
@@ -550,7 +553,6 @@ class VlessSettings {
   final String? fallbackUrl;
 
   const VlessSettings({
-    this.remoteDns = const DnsServer('https://8.8.8.8/dns-query'),
     this.ports = const [443],
     this.cleanIps = const ['104.17.148.22', '104.17.147.22'],
     this.tlsFingerprint = 'chrome',
@@ -567,7 +569,6 @@ class VlessSettings {
     final j = _map(v);
     const d = VlessSettings();
     return VlessSettings(
-      remoteDns: DnsServer.parse(j['remoteDns'], d.remoteDns),
       ports: _intList(j['ports'], d.ports),
       cleanIps: _strList(j['cleanIps'], d.cleanIps),
       tlsFingerprint: _str(j['tlsFingerprint'], d.tlsFingerprint),
@@ -582,7 +583,6 @@ class VlessSettings {
   }
 
   Map<String, dynamic> toJson() => {
-    'remoteDns': remoteDns.toJson(),
     'ports': ports,
     'cleanIps': cleanIps,
     'tlsFingerprint': tlsFingerprint,
@@ -598,7 +598,6 @@ class VlessSettings {
 
 class WarpSettings {
   /// IP of the DNS server used through WARP.
-  final String remoteDns;
   final List<String> endpoints;
   final int keepAlive;
   final int speedTestInterval;
@@ -608,7 +607,6 @@ class WarpSettings {
   final WarpAccount? account;
 
   const WarpSettings({
-    this.remoteDns = '1.1.1.1',
     // Set from the account's registration (see AppState.renewWarpAccount).
     this.endpoints = const [],
     this.keepAlive = 10,
@@ -621,7 +619,6 @@ class WarpSettings {
     final j = _map(v);
     const d = WarpSettings();
     return WarpSettings(
-      remoteDns: _str(j['remoteDns'], d.remoteDns),
       endpoints: _strList(j['endpoints'], d.endpoints),
       keepAlive: _int(j['keepAlive'], d.keepAlive),
       speedTestInterval: _int(j['speedTestInterval'], d.speedTestInterval),
@@ -636,7 +633,6 @@ class WarpSettings {
   }
 
   Map<String, dynamic> toJson() => {
-    'remoteDns': remoteDns,
     'endpoints': endpoints,
     'keepAlive': keepAlive,
     'speedTestInterval': speedTestInterval,
@@ -698,9 +694,6 @@ class MasqueSettings {
   /// Transport used by MASQUE: HTTP/2 over TCP or HTTP/3 over QUIC.
   final String transport;
 
-  /// IP of the DNS server used through the tunnel.
-  final String remoteDns;
-
   /// The TLS server name sent to the MASQUE endpoints.
   final String sni;
   final String tlsFingerprint;
@@ -721,7 +714,6 @@ class MasqueSettings {
 
   const MasqueSettings({
     this.transport = 'h2',
-    this.remoteDns = '1.1.1.1',
     this.sni = defaultSni,
     this.tlsFingerprint = 'chrome',
     // Set from the account's enrollment (see AppState.renewMasqueAccount).
@@ -738,7 +730,6 @@ class MasqueSettings {
     const d = MasqueSettings();
     return MasqueSettings(
       transport: j['transport'] == 'h3' ? 'h3' : d.transport,
-      remoteDns: _str(j['remoteDns'], d.remoteDns),
       sni: _str(j['sni'], d.sni),
       tlsFingerprint: _str(j['tlsFingerprint'], d.tlsFingerprint),
       endpoints: _strList(j['endpoints'], d.endpoints),
@@ -764,7 +755,6 @@ class MasqueSettings {
 
   Map<String, dynamic> toJson() => {
     'transport': transport,
-    'remoteDns': remoteDns,
     'sni': sni,
     'tlsFingerprint': tlsFingerprint,
     'endpoints': endpoints,

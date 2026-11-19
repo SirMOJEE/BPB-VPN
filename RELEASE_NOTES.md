@@ -1,13 +1,11 @@
-# 💡 Bug fixes and Improvements
+# 🌟 Global Remote DNS
 
-- Made some revisions to **Domain Fronting** config to fix DNS issues and TLS repacks.
-- Set default Per-app page behaviour to show system apps (slower but more convinient). #17
-- Fixed Region selection UI bug when Android nav bar is enabled.
-- Renamed **Worker** connection type to **VLESS** to fit settings' sections.
+Merged all protocols' **Remote DNS** servers into one field in Global settings. VLESS now supports Cloudflare DNS servers and hijacks them into related DoH servers within worker.  
+The Remote DNS only accepts IPv4 and IPv6 now to boost up performance specially for **VLESS**.
 
 > [!IMPORTANT]
-> Some default settings have been changed since 1.0.0 and 1.1.0, so I recommend to reset settings after this update just to be sure. Don't worry, this will preserve your clean IPs and endpoints.
+> The worker scripts get updated in the background after you update to this version. however it needs to connect to the internet, You can confirm worker update by checking `Settings` > `VLESS` > `Cloudflare accounts`, there will be a manual update button in case the update was not successful.
 
-**Full Changelog**: https://github.com/bia-pain-bache/BPB-VPN/compare/v1.2.0...v1.2.1
+**Full Changelog**: https://github.com/bia-pain-bache/BPB-VPN/compare/v1.2.1...v1.2.2
 
-![GitHub Downloads (all assets, specific tag)](https://img.shields.io/github/downloads/bia-pain-bache/BPB-VPN/v1.2.1/total)
+![GitHub Downloads (all assets, specific tag)](https://img.shields.io/github/downloads/bia-pain-bache/BPB-VPN/v1.2.2/total)

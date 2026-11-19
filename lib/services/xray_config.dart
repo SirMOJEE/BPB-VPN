@@ -396,9 +396,6 @@ class XrayConfigBuilder {
   MasqueSettings get _masque => profile.masque;
   ServerlessSettings get _serverless => profile.serverless;
 
-  /// WARP's or MASQUE's (see [ConnectionMode.isWarpLike]).
-  String get _tunnelRemoteDns =>
-      _mode == ConnectionMode.masque ? _masque.remoteDns : _warp.remoteDns;
   int get _tunnelSpeedTestInterval => _mode == ConnectionMode.masque
       ? _masque.speedTestInterval
       : _warp.speedTestInterval;
@@ -1102,18 +1099,19 @@ class XrayConfigBuilder {
   ) async {
     final ipv6 = _general.enableIpv6;
     // Serverless: always the system's resolver ("localhost", outside Xray's routing), like v23.
+    final generalRemoteDns = _general.remoteDns;
+    final remoteDns = isWarp ? generalRemoteDns : 'tcp://$generalRemoteDns';
     final localDNS = _general.localDns;
     final hosts = <String, dynamic>{};
     final servers = <dynamic>[];
     final fakeDnsDomains = <String>[];
 
-    // The remote DNS's host: a public one's IPs in hosts; any other is resolved with the local
-    // DNS (see bypassDomains), like the anti-sanction DoH.
-    String? unlistedDnsHost;
-    if (!isServerlessPacket && !isServerlessDns && !isWarp && !_exitType) {
-      unlistedDnsHost = _addDnsHost(hosts, _vless.remoteDns.server, ipv6);
-    }
-    if (isWarp) unlistedDnsHost = _addDnsHost(hosts, _tunnelRemoteDns, ipv6);
+    /// Serverless's DoH servers and their hosts entries (Cloudflare's: a domain, resolved with
+    /// the local DNS).
+    final serverlessPacketDoh = {
+      'dns.google': ['8.8.8.8', '8.8.4.4'],
+      'cloudflare-dns.com': ['cloudflare.com'],
+    };
 
     if (domainToStaticIPs != null) {
       final ips = await resolver(domainToStaticIPs, ipv6: ipv6);
@@ -1122,7 +1120,7 @@ class XrayConfigBuilder {
 
     final skipFallback = !isServerlessPacket;
     if (isServerlessPacket) {
-      _serverlessPacketDoh.forEach((host, ips) {
+      serverlessPacketDoh.forEach((host, ips) {
         hosts[host] = ips;
         servers.add(_dnsServer('https://$host/dns-query', tag: 'remote-dns'));
       });
@@ -1169,12 +1167,7 @@ class XrayConfigBuilder {
     }
 
     if (!isServerlessPacket && !isServerlessDns) {
-      servers.add(
-        _dnsServer(
-          isWarp ? _tunnelRemoteDns : _vless.remoteDns.server,
-          tag: 'remote-dns',
-        ),
-      );
+      servers.add(_dnsServer(remoteDns, tag: 'remote-dns'));
     }
 
     final geo = _geoAssets();
@@ -1214,7 +1207,6 @@ class XrayConfigBuilder {
           .map((g) => g.geosite),
       ...routing.bypass.domains.map((d) => 'domain:$d'),
       ...outboundAddrs.where(_isDomain).map((d) => 'full:$d'),
-      if (unlistedDnsHost != null) 'full:$unlistedDnsHost',
       ...unknownHosts.map((d) => 'full:$d'),
     ];
 
@@ -1235,9 +1227,7 @@ class XrayConfigBuilder {
 
     if (isServerlessPacket) {
       for (final h
-          in _serverlessPacketDoh.values
-              .expand((ips) => ips)
-              .where(_isDomain)) {
+          in serverlessPacketDoh.values.expand((ips) => ips).where(_isDomain)) {
         bypassDomains.add('full:$h');
       }
     }
@@ -1275,26 +1265,19 @@ class XrayConfigBuilder {
     };
   }
 
-  /// Serverless's DoH servers and their hosts entries (Cloudflare's: a domain, resolved with
-  /// the local DNS).
-  static const _serverlessPacketDoh = {
-    'dns.google': ['8.8.8.8', '8.8.4.4'],
-    'cloudflare-dns.com': ['cloudflare.com'],
-  };
-
   /// Maps a DNS [server]'s hostname to a public one's IPs from [publicDnsIps] (IPv6 ones only
   /// with IPv6 on). Returns the hostname when it's a domain not in the list, for the local DNS.
-  String? _addDnsHost(Map<String, dynamic> hosts, String server, bool ipv6) {
-    final host = _dnsHost(server);
-    if (!_isDomain(host)) return null;
-    final known = publicDnsIps[host];
-    if (known == null) return host;
-    hosts[host] = [
-      for (final ip in known)
-        if (ipv6 || !ip.contains(':')) ip,
-    ];
-    return null;
-  }
+  // String? _addDnsHost(Map<String, dynamic> hosts, String server, bool ipv6) {
+  //   final host = _dnsHost(server);
+  //   if (!_isDomain(host)) return null;
+  //   final known = publicDnsIps[host];
+  //   if (known == null) return host;
+  //   hosts[host] = [
+  //     for (final ip in known)
+  //       if (ipv6 || !ip.contains(':')) ip,
+  //   ];
+  //   return null;
+  // }
 
   Map<String, dynamic> _dnsServer(
     String address, {
