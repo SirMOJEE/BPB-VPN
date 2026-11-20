@@ -10,6 +10,7 @@ The Remote DNS only accepts IPv4 and IPv6 now to boost up performance specially 
 
 - Made Remote DNS global, improved VLESS DNS performance and added Cloudflare DNS support to.
 - Updated worker minification setup.
+- Fixed scanner pause bug.
 
 **Full Changelog**: https://github.com/bia-pain-bache/BPB-VPN/compare/v1.2.1...v1.2.2
 

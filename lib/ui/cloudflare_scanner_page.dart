@@ -313,6 +313,9 @@ class _CloudflareScannerPageState extends State<CloudflareScannerPage> {
 
   void _onEvent(ScannerEvent event) {
     if (!mounted) return;
+    // Progress events may already be buffered in the native event channel when
+    // pause is requested. Do not let those delayed events move the counter.
+    if (_paused && event.type == 'progress') return;
     setState(() {
       switch (event.type) {
         case 'progress':
@@ -338,15 +341,22 @@ class _CloudflareScannerPageState extends State<CloudflareScannerPage> {
   }
 
   Future<void> _togglePause() async {
+    final wasPaused = _paused;
+    if (!wasPaused && mounted) setState(() => _paused = true);
     try {
-      if (_paused) {
+      if (wasPaused) {
         await ScannerChannel.resume();
+        if (mounted) setState(() => _paused = false);
       } else {
         await ScannerChannel.pause();
       }
-      if (mounted) setState(() => _paused = !_paused);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) {
+        setState(() {
+          _paused = wasPaused;
+          _error = error.toString();
+        });
+      }
     }
   }
 
@@ -527,7 +537,9 @@ class _CloudflareScannerPageState extends State<CloudflareScannerPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Symbols.network_check_rounded),
-                  label: Text(_loadingCidrs ? 'Loading CIDRs…' : 'Start scan'),
+                  label: Text(
+                    _loadingCidrs ? 'Loading CIDRs…' : 'Start scan',
+                  ),
                   onPressed: _running || _loadingCidrs || !supported
                       ? null
                       : () => _start(state),
