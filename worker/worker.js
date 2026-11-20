@@ -181,27 +181,27 @@ const CF_SEC = "https://security.cloudflare-dns.com/dns-query";
 const CF_FAM = "https://family.cloudflare-dns.com/dns-query";
 
 const CF_DOH_BY_HOST = new Map([
-	// standard
-	["1.1.1.1", CF_STD], ["1.0.0.1", CF_STD],
-	["2606:4700:4700::1111", CF_STD], ["2606:4700:4700::1001", CF_STD],
-	["one.one.one.one", CF_STD], ["cloudflare-dns.com", CF_STD],
-	// malware blocking
-	["1.1.1.2", CF_SEC], ["1.0.0.2", CF_SEC],
-	["2606:4700:4700::1112", CF_SEC], ["2606:4700:4700::1002", CF_SEC],
-	["security.cloudflare-dns.com", CF_SEC],
-	// malware + adult content
-	["1.1.1.3", CF_FAM], ["1.0.0.3", CF_FAM],
-	["2606:4700:4700::1113", CF_FAM], ["2606:4700:4700::1003", CF_FAM],
-	["family.cloudflare-dns.com", CF_FAM],
+    // standard
+    ["1.1.1.1", CF_STD], ["1.0.0.1", CF_STD],
+    ["2606:4700:4700::1111", CF_STD], ["2606:4700:4700::1001", CF_STD],
+    ["one.one.one.one", CF_STD], ["cloudflare-dns.com", CF_STD],
+    // malware blocking
+    ["1.1.1.2", CF_SEC], ["1.0.0.2", CF_SEC],
+    ["2606:4700:4700::1112", CF_SEC], ["2606:4700:4700::1002", CF_SEC],
+    ["security.cloudflare-dns.com", CF_SEC],
+    // malware + adult content
+    ["1.1.1.3", CF_FAM], ["1.0.0.3", CF_FAM],
+    ["2606:4700:4700::1113", CF_FAM], ["2606:4700:4700::1003", CF_FAM],
+    ["family.cloudflare-dns.com", CF_FAM],
 ]);
 
 function cloudflareDoH(address, port) {
-	if (Number(port) !== 53) return null;
-	let a = String(address).toLowerCase().replace(/^\[|\]$/g, "");
-	if (a.includes(":")) {
-		try { a = new URL(`http://[${a}]/`).hostname.slice(1, -1); } catch { return null; } // canonical IPv6
-	}
-	return CF_DOH_BY_HOST.get(a) ?? null;
+    if (Number(port) !== 53) return null;
+    let a = String(address).toLowerCase().replace(/^\[|\]$/g, "");
+    if (a.includes(":")) {
+        try { a = new URL(`http://[${a}]/`).hostname.slice(1, -1); } catch { return null; } // canonical IPv6
+    }
+    return CF_DOH_BY_HOST.get(a) ?? null;
 }
 
 // DNS-over-TCP framing ([2-byte len][msg]) relayed to a DoH endpoint
