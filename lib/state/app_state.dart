@@ -291,10 +291,18 @@ class AppState extends ChangeNotifier {
     for (final c in [...profile.chains, ...chains]) c.toJson(),
   ]);
 
-  void deleteChain(ChainProxy chain) => write('chains', [
-    for (final c in profile.chains)
-      if (c.id != chain.id) c.toJson(),
-  ]);
+  void deleteChain(ChainProxy chain) {
+    write('chains', [
+      for (final c in profile.chains)
+        if (c.id != chain.id) c.toJson(),
+    ]);
+    // A per-app exit that used this chain falls back to the connection's exit.
+    final exits = Map<String, String>.from(device.perAppExits)
+      ..removeWhere((_, v) => v == 'chain:${chain.id}');
+    if (exits.length != device.perAppExits.length) {
+      write('device.perAppProxy.exits', exits);
+    }
+  }
 
   /// [region]: an exitRegions code, or empty for the fastest (any region).
   void setExitRegion(String region) => write('device.exit.region', region);
