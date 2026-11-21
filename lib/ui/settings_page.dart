@@ -20,6 +20,7 @@ import 'fragments_page.dart';
 import 'license_page.dart';
 import 'noises_page.dart';
 import 'per_app_chains_page.dart';
+import 'per_domain_chains_page.dart';
 import 'per_app_page.dart';
 import 'prefs.dart';
 import 'routing_page.dart';
@@ -224,7 +225,7 @@ class SettingsPage extends StatelessWidget {
             ],
           ),
 
-          const SectionHeader('Per-app chains'),
+          const SectionHeader('Per-app & domain chains'),
           SettingsCard(
             children: [
               ListTile(
@@ -239,6 +240,21 @@ class SettingsPage extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => const PerAppChainsPage(),
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Symbols.language_rounded),
+                title: const Text('Domain chains'),
+                subtitle: Text(switch (d.domainExits.length) {
+                  0 => 'Follow the connection exit',
+                  1 => '1 domain with a custom exit',
+                  final n => '$n domains with a custom exit',
+                }),
+                trailing: const Icon(Symbols.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const PerDomainChainsPage(),
                   ),
                 ),
               ),
