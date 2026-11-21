@@ -1122,6 +1122,13 @@ class DeviceSettings {
   /// 'tor', or 'chain:<id>' (a saved chain proxy's id). Absent: 'default'. Stored under
   /// `perAppProxy.exits`; the VPN engine applies the choices (per-app routing).
   final Map<String, String> perAppExits;
+
+  /// Per-domain exits: domain (lowercase, no scheme) → exit choice, same values as
+  /// [perAppExits]. Applied by the VPN engine as Xray routing rules (a domain's traffic
+  /// leaves through its chosen exit; the rest follows the connection's exit). Stored
+  /// under `domainExits`; the engine needs no native change because Xray sniffs the
+  /// domain and its routing rules already run before the catch-all.
+  final Map<String, String> domainExits;
   final bool lanSharing;
   final String? lanUsername;
   final String? lanPassword;
@@ -1169,6 +1176,7 @@ class DeviceSettings {
     this.perAppMode = PerAppMode.off,
     this.perAppApps = const [],
     this.perAppExits = const {},
+    this.domainExits = const {},
     this.lanSharing = false,
     this.lanUsername,
     this.lanPassword,
@@ -1210,6 +1218,10 @@ class DeviceSettings {
       perAppApps: _strList(perApp['apps'], d.perAppApps),
       perAppExits: {
         for (final e in _map(perApp['exits']).entries)
+          if (e.value is String) e.key: e.value as String,
+      },
+      domainExits: {
+        for (final e in _map(j['domainExits']).entries)
           if (e.value is String) e.key: e.value as String,
       },
       lanSharing: _bool(lan['enabled'], d.lanSharing),
@@ -1267,6 +1279,7 @@ class DeviceSettings {
       'apps': perAppApps,
       'exits': perAppExits,
     },
+    'domainExits': domainExits,
     'lanSharing': {
       'enabled': lanSharing,
       'username': lanUsername,
@@ -1303,6 +1316,10 @@ class DeviceSettings {
   /// The exit choice for [packageName]: 'default' when the app has none.
   String perAppExitFor(String packageName) =>
       perAppExits[packageName] ?? 'default';
+
+  /// The exit choice for [domain]: 'default' when the domain has none.
+  String domainExitFor(String domain) =>
+      domainExits[domain.toLowerCase()] ?? 'default';
 
   DeviceSettings updated(String path, Object? value) =>
       DeviceSettings.fromJson(writePath(toJson(), path, value));
