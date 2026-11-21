@@ -386,6 +386,86 @@ class XrayConfigBuilder {
   /// process's inbound (psiphon-in / tor-in), or chain-in, the chain proxy's loopback.
   String get _exitInbound => '${_exit.name}-in';
 
+  /// The Psiphon / Tor exit a domain rule needs, when the connection itself has none.
+  /// Only one exit process can run, so when domains use both, Tor wins and the
+  /// Psiphon domains follow the connection's exit instead. Null for the Psiphon /
+  /// Tor connection types (the whole connection is the exit there) and for Serverless
+  /// DNS mode (its start forces no exit process).
+  ExitNode? get _domainExitProcess {
+    if (_isExitProcess || _exitType) return null;
+    if (_mode == ConnectionMode.serverless &&
+        serverlessModeOf(device) == ServerlessMode.dns) {
+      return null;
+    }
+    final values = device.domainExits.values.toSet();
+    if (values.contains('tor')) return ExitNode.tor;
+    if (values.contains('psiphon')) return ExitNode.psiphon;
+    return null;
+  }
+
+  /// The one exit process the tunnel runs: the connection's, else the one a domain
+  /// rule needs. The native side starts it when the config has its `<name>-in`
+  /// inbound (see AppState._start), so no Kotlin change is needed.
+  ExitNode? get _runningExit => _chainedExit ? _exit : _domainExitProcess;
+
+  /// The inbound the running exit process's own connections enter through, so they
+  /// go through the connection instead of looping into the exit itself.
+  String get _runningExitInbound => '${_runningExit!.name}-in';
+
+  /// The outbound tag user traffic takes to reach the running exit process: 'exit'
+  /// when the process is the connection's own exit (the catch-all already points
+  /// there), 'domain-exit' when only domain rules need it (the connection's 'exit'
+  /// tag may already be the chain proxy).
+  String get _exitProcessOutboundTag => _chainedExit ? 'exit' : 'domain-exit';
+
+  /// Whether the saved chain proxy [id] exists and its link builds an outbound.
+  /// A stale domain rule (chain deleted, link unparsable, protocol unsupported)
+  /// fails here, so the rule and the outbound never disagree.
+  bool _domainChainUsable(String id) {
+    final chain = profile.chains.where((c) => c.id == id).firstOrNull;
+    if (chain == null) return false;
+    try {
+      _chainOutboundFor(chain);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Chain proxy ids domain rules point at, limited to usable saved chains.
+  Set<String> get _domainChainIds => {
+    for (final v in device.domainExits.values)
+      if (v.startsWith('chain:') && _domainChainUsable(v.substring(6)))
+        v.substring(6),
+  };
+
+  /// Whether any domain rule needs a chain proxy outbound of its own.
+  bool get _hasDomainChains => _domainChainIds.isNotEmpty;
+
+  /// The outbound tag a domain rule for [value] points at, or null when the exit
+  /// cannot be served and the domain should follow the connection's exit.
+  String? _domainExitOutbound(String value, String outTag) {
+    switch (value) {
+      case 'worker':
+        return outTag;
+      case 'psiphon' || 'tor':
+        // Only the running exit process can be pointed at; the other type would
+        // need a second process that cannot run alongside it.
+        return _runningExit?.name == value ? _exitProcessOutboundTag : null;
+      default:
+        if (!value.startsWith('chain:')) return null;
+        // Domain Fronting builds its outbounds from the v23 config, which has no
+        // chain outbounds of its own.
+        if (_frontedExit) return null;
+        final id = value.substring(6);
+        if (_exit == ExitNode.chain &&
+            chainFor(_mode, device, profile.chains)?.id == id) {
+          return 'exit';
+        }
+        return _domainChainIds.contains(id) ? 'domain-chain-$id' : null;
+    }
+  }
+
   /// Exit name shown in the notification.
   static String exitLabel(ExitNode node) =>
       node == ExitNode.tor ? 'Tor' : 'Psiphon';
@@ -956,9 +1036,11 @@ class XrayConfigBuilder {
       ),
       'inbounds': [
         ..._localInbounds(sniffing),
-        if (_chainedExit)
+        // The running exit process's own connections enter here, to go through the
+        // connection: the connection's exit, or the one a domain rule needs.
+        if (_runningExit != null)
           {
-            'tag': _exitInbound,
+            'tag': _runningExitInbound,
             'listen': '127.0.0.1',
             'port': exitUpstreamPort,
             'protocol': 'socks',
@@ -967,10 +1049,11 @@ class XrayConfigBuilder {
       ],
       'outbounds': [
         ...outbounds,
+        ..._domainChainOutbounds(),
         _dnsOutbound('dns-out', false),
-        if (_chainedExit)
+        if (_runningExit != null)
           {
-            'tag': 'exit',
+            'tag': _exitProcessOutboundTag,
             'protocol': 'socks',
             'settings': {'address': '127.0.0.1', 'port': exitPort},
           },
@@ -1346,7 +1429,14 @@ class XrayConfigBuilder {
     // reaching their servers as an exit (Serverless: with fragment).
     if (!_exitType && !_frontedExit && !isServerlessDns) {
       add(
-        inboundTag: [if (_hasExit) _exitInbound, 'remote-dns'],
+        inboundTag: [
+          if (_hasExit) _exitInbound,
+          // The exit process a domain rule needs, and the dialers of domain chains,
+          // enter here too, so their traffic goes through the connection.
+          if (_domainExitProcess != null) _runningExitInbound,
+          if (_hasDomainChains && _exit != ExitNode.chain) 'chain-in',
+          'remote-dns',
+        ],
         outbound: outTag,
         balancer: isBalancer,
       );
@@ -1373,6 +1463,30 @@ class XrayConfigBuilder {
       ...routing.block.domains.map((d) => 'domain:$d'),
     ];
     if (blockDomains.isNotEmpty) add(domain: blockDomains, outbound: 'block');
+
+    // Per-domain exits: a domain's traffic leaves through its chosen exit, while
+    // everything else follows the connection's exit. After the block rules (a block
+    // always wins) and before the bypass rules (the explicit choice wins over the
+    // generic bypass). Skipped for the Psiphon / Tor connection types (the whole
+    // connection is the exit there) and for Serverless DNS mode (no exit process
+    // runs there). A domain whose exit cannot be served gets no rule and follows
+    // the connection's exit. Tor carries TCP only, so its domains' UDP falls
+    // through to the connection.
+    if (!_exitType && !isServerlessDns) {
+      for (final entry in device.domainExits.entries) {
+        final domain = entry.key.trim().toLowerCase();
+        final value = entry.value;
+        if (domain.isEmpty || value == 'default') continue;
+        final outbound = _domainExitOutbound(value, outTag);
+        if (outbound == null) continue;
+        add(
+          domain: ['domain:$domain'],
+          outbound: outbound,
+          network: value == 'tor' ? 'tcp' : null,
+          balancer: value == 'worker' && isBalancer,
+        );
+      }
+    }
 
     final bypassDomains = [
       'geosite:private',
@@ -1797,6 +1911,47 @@ class XrayConfigBuilder {
     ];
   }
 
+  /// Outbounds for the chain proxies domain rules point at, other than the
+  /// connection's own chain (which already has the 'exit' outbound): one outbound
+  /// per chain, plus a loopback their dialers re-enter through. A stale rule is
+  /// skipped here and in the routing rules, so it can never break the connection.
+  List<Map<String, dynamic>> _domainChainOutbounds() {
+    if (_exitType) return const [];
+    if (_mode == ConnectionMode.serverless &&
+        serverlessModeOf(device) == ServerlessMode.dns) {
+      return const [];
+    }
+    final outbounds = <Map<String, dynamic>>[];
+    final connectionChain = _exit == ExitNode.chain
+        ? chainFor(_mode, device, profile.chains)?.id
+        : null;
+    for (final id in _domainChainIds) {
+      if (id == connectionChain) continue;
+      final chain = profile.chains.where((c) => c.id == id).firstOrNull;
+      if (chain == null) continue;
+      try {
+        outbounds.add(
+          _retag(
+            _chainOutboundFor(chain),
+            'domain-chain-$id',
+            dialerProxy: 'domain-chain-dialer',
+          ),
+        );
+      } catch (_) {
+        continue;
+      }
+    }
+    if (outbounds.isEmpty) return const [];
+    return [
+      ...outbounds,
+      {
+        'protocol': 'loopback',
+        'settings': {'inboundTag': 'chain-in'},
+        'tag': 'domain-chain-dialer',
+      },
+    ];
+  }
+
   /// The chain proxy chosen for this connection type, when it's the exit node.
   Map<String, dynamic>? _chainOutbound() {
     if (_exit != ExitNode.chain) return null;
@@ -1804,6 +1959,12 @@ class XrayConfigBuilder {
     if (chain == null) {
       throw StateError('Add a chain proxy in Settings → Chain proxies first.');
     }
+    return _chainOutboundFor(chain);
+  }
+
+  /// An outbound for [chain], dialed through the connection (dialerProxy
+  /// 'exit-dialer'). Domain rules point at a retagged copy of this outbound.
+  Map<String, dynamic> _chainOutboundFor(ChainProxy chain) {
     final ProxyUri p;
     try {
       p = ProxyUri.parse(chain.link);
