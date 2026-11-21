@@ -19,6 +19,7 @@ import 'donation_page.dart';
 import 'fragments_page.dart';
 import 'license_page.dart';
 import 'noises_page.dart';
+import 'per_app_chains_page.dart';
 import 'per_app_page.dart';
 import 'prefs.dart';
 import 'routing_page.dart';
@@ -219,6 +220,27 @@ class SettingsPage extends StatelessWidget {
                 onTap: () => Navigator.of(
                   context,
                 ).push(MaterialPageRoute(builder: (_) => const PerAppPage())),
+              ),
+            ],
+          ),
+
+          const SectionHeader('Per-app chains'),
+          SettingsCard(
+            children: [
+              ListTile(
+                leading: const Icon(Symbols.alt_route_rounded),
+                title: const Text('Per-app chains'),
+                subtitle: Text(switch (d.perAppExits.length) {
+                  0 => 'Follow the connection exit',
+                  1 => '1 app with a custom exit',
+                  final n => '$n apps with a custom exit',
+                }),
+                trailing: const Icon(Symbols.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const PerAppChainsPage(),
+                  ),
+                ),
               ),
             ],
           ),
