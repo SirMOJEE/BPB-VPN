@@ -1116,6 +1116,12 @@ class DeviceSettings {
   final bool appendHttpProxy;
   final PerAppMode perAppMode;
   final List<String> perAppApps;
+
+  /// Per-app exits: package name → exit choice. A choice is one of 'default' (the
+  /// connection's exit node), 'worker' (the connection itself, no extra hop), 'psiphon',
+  /// 'tor', or 'chain:<id>' (a saved chain proxy's id). Absent: 'default'. Stored under
+  /// `perAppProxy.exits`; the VPN engine applies the choices (per-app routing).
+  final Map<String, String> perAppExits;
   final bool lanSharing;
   final String? lanUsername;
   final String? lanPassword;
@@ -1162,6 +1168,7 @@ class DeviceSettings {
     this.appendHttpProxy = false,
     this.perAppMode = PerAppMode.off,
     this.perAppApps = const [],
+    this.perAppExits = const {},
     this.lanSharing = false,
     this.lanUsername,
     this.lanPassword,
@@ -1201,6 +1208,10 @@ class DeviceSettings {
       appendHttpProxy: _bool(j['appendHttpProxy'], d.appendHttpProxy),
       perAppMode: PerAppMode.values.asNameMap()[perApp['mode']] ?? d.perAppMode,
       perAppApps: _strList(perApp['apps'], d.perAppApps),
+      perAppExits: {
+        for (final e in _map(perApp['exits']).entries)
+          if (e.value is String) e.key: e.value as String,
+      },
       lanSharing: _bool(lan['enabled'], d.lanSharing),
       lanUsername: _strOrNull(lan['username']),
       lanPassword: _strOrNull(lan['password']),
@@ -1251,7 +1262,11 @@ class DeviceSettings {
     'logLevel': logLevel,
     'mtu': mtu,
     'appendHttpProxy': appendHttpProxy,
-    'perAppProxy': {'mode': perAppMode.name, 'apps': perAppApps},
+    'perAppProxy': {
+      'mode': perAppMode.name,
+      'apps': perAppApps,
+      'exits': perAppExits,
+    },
     'lanSharing': {
       'enabled': lanSharing,
       'username': lanUsername,
@@ -1284,6 +1299,10 @@ class DeviceSettings {
 
   /// The exit node chosen for a connection type ([mode]: a ConnectionMode name).
   ExitNode exitNodeFor(String mode) => exitNodes[mode] ?? exitNode;
+
+  /// The exit choice for [packageName]: 'default' when the app has none.
+  String perAppExitFor(String packageName) =>
+      perAppExits[packageName] ?? 'default';
 
   DeviceSettings updated(String path, Object? value) =>
       DeviceSettings.fromJson(writePath(toJson(), path, value));
