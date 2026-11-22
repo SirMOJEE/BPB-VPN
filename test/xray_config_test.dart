@@ -1160,6 +1160,7 @@ void main() {
             'port': 53,
             'outboundTag': 'dns-out-exit',
           },
+          {'inboundTag': ['direct-in'], 'outboundTag': 'proxy'},
           {
             'domain': ['geosite:private'],
             'outboundTag': 'direct',
@@ -1173,6 +1174,8 @@ void main() {
             'outboundTag': 'direct',
           },
           if (exit == 'tor') {'network': 'udp', 'outboundTag': 'block'},
+          {'inboundTag': ['app-chain-in'], 'outboundTag': 'exit'},
+          {'inboundTag': ['app-direct-in'], 'outboundTag': 'proxy'},
           {'network': exit == 'tor' ? 'tcp' : 'tcp,udp', 'outboundTag': 'exit'},
         ]);
 
