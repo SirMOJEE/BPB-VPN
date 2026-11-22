@@ -258,9 +258,16 @@ void main() {
       )
       .firstOrNull;
 
-  test('config has tun inbound, vless outbounds and UDP block', () async {
+  test('config has dispatch inbounds, vless outbounds and UDP block', () async {
     final c = (await builder({}).build(ConnectionMode.worker)).config;
-    expect((c['inbounds'] as List).first['protocol'], 'tun');
+    // The engine owns the TUN fd: no 'tun' inbound, the two dispatch
+    // inbounds take its place up front.
+    expect((c['inbounds'] as List).map((i) => i['tag']), containsAll([
+      'app-chain-in',
+      'app-direct-in',
+      'mixed-in',
+    ]));
+    expect((c['inbounds'] as List).first['tag'], 'app-chain-in');
     final proxy = (c['outbounds'] as List).first as Map;
     expect(proxy['tag'], 'proxy-1');
     expect(proxy['protocol'], 'vless');
@@ -443,7 +450,13 @@ void main() {
       'lengths': ['100-200'],
       'delays': ['0'],
     });
-    expect((c['inbounds'] as List).first['settings']['MTU'], 1400);
+    // The engine owns the TUN fd: MTU goes to the native engine, not the
+    // config, so there is no 'tun' inbound carrying it anymore.
+    expect((c['inbounds'] as List).map((i) => i['tag']), containsAll([
+      'app-chain-in',
+      'app-direct-in',
+    ]));
+    expect((c['inbounds'] as List).any((i) => i['tag'] == 'tun'), isFalse);
     expect(
       (stream['tlsSettings'] as Map).containsKey('echConfigList'),
       isFalse,
@@ -983,7 +996,8 @@ void main() {
 
       final inbounds = (c['inbounds'] as List).cast<Map>();
       expect(inbounds.map((i) => i['tag']), [
-        'tun',
+        'app-chain-in',
+        'app-direct-in',
         'mixed-in',
         'tls-decrypt-h11',
         'tls-decrypt-h211',
@@ -996,10 +1010,10 @@ void main() {
         'destOverride': ['http', 'tls', 'fakedns'],
         'routeOnly': true,
       });
-      expect(inbounds[1]['sniffing'], mixed['sniffing']);
-      expect(inbounds[1]['streamSettings'], mixed['streamSettings']);
-      expect(inbounds[1]['port'], XrayConfigBuilder.localProxyPort);
-      for (final decrypt in inbounds.skip(2)) {
+      expect(inbounds[2]['sniffing'], mixed['sniffing']);
+      expect(inbounds[2]['streamSettings'], mixed['streamSettings']);
+      expect(inbounds[2]['port'], XrayConfigBuilder.localProxyPort);
+      for (final decrypt in inbounds.skip(3)) {
         final cert =
             decrypt['streamSettings']['tlsSettings']['certificates'].single
                 as Map;
@@ -1040,7 +1054,8 @@ void main() {
 
         final inbounds = (c['inbounds'] as List).cast<Map>();
         expect(inbounds.map((i) => i['tag']), [
-          'tun',
+          'app-chain-in',
+          'app-direct-in',
           'mixed-in',
           '$exit-in',
           'tls-decrypt-h11',
@@ -1052,12 +1067,12 @@ void main() {
           'destOverride': ['http', 'tls', 'fakedns'],
           'routeOnly': true,
         });
-        expect(inbounds[2]['sniffing'], {
+        expect(inbounds[3]['sniffing'], {
           'enabled': true,
           'destOverride': ['fakedns', 'tls'],
           'routeOnly': false,
         });
-        expect(inbounds.skip(3), (original['inbounds'] as List).skip(1));
+        expect(inbounds.skip(4), (original['inbounds'] as List).skip(1));
 
         final outbounds = (c['outbounds'] as List).cast<Map>();
         expect(outbounds.first['tag'], 'exit');
@@ -1141,7 +1156,7 @@ void main() {
             'outboundTag': 'block',
           },
           {
-            'inboundTag': ['tun', 'mixed-in'],
+            'inboundTag': ['app-chain-in', 'app-direct-in', 'mixed-in'],
             'port': 53,
             'outboundTag': 'dns-out-exit',
           },
@@ -1745,10 +1760,13 @@ void main() {
         'all-proxies',
       ]);
       final rules = (c['routing']['rules'] as List).cast<Map>();
-      expect(rules.firstWhere((r) => r['balancerTag'] != null)['inboundTag'], [
-        'chain-in',
-        'remote-dns',
-      ]);
+      // The 'direct-in' rule is the first rule with a balancer now, so look
+      // the chain rule up by its own inbound tag instead.
+      final chainRule = rules.firstWhere(
+        (r) => (r['inboundTag'] as List?)?.contains('chain-in') ?? false,
+      );
+      expect(chainRule['inboundTag'], ['chain-in', 'remote-dns']);
+      expect(chainRule['balancerTag'], 'all-proxies');
       expect(rules.last['outboundTag'], 'exit');
       dump('warp_chain_best', c);
     });
@@ -2120,13 +2138,16 @@ void main() {
     },
   );
 
-  test('Proxy mode has no TUN inbound, only the local mixed proxy', () async {
+  test('Proxy mode has no TUN inbound, only the local mixed proxies', () async {
     final c = (await builder(everything, {
       'appMode': 'proxy',
     }).build(ConnectionMode.worker)).config;
     final inbounds = (c['inbounds'] as List).cast<Map>();
-    expect(inbounds.map((i) => i['tag']), ['mixed-in']);
-    expect(inbounds.single['port'], XrayConfigBuilder.localProxyPort);
+    expect(inbounds.map((i) => i['tag']), ['mixed-in', 'direct-in']);
+    expect(
+      inbounds.firstWhere((i) => i['tag'] == 'mixed-in')['port'],
+      XrayConfigBuilder.localProxyPort,
+    );
     dump('worker_proxy_mode', c);
   });
 
