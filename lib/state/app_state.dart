@@ -664,6 +664,7 @@ class AppState extends ChangeNotifier {
       ].join(' · '),
       perAppMode: device.perAppMode.name,
       apps: device.perAppApps,
+      perAppExits: device.perAppExits,
       mtu: device.mtu,
       appendHttpProxy: device.appendHttpProxy,
       proxyOnly: proxyMode,
