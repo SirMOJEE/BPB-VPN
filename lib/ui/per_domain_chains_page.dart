@@ -5,16 +5,15 @@ import '../models/settings.dart';
 import '../state/app_state.dart';
 import 'prefs.dart';
 
-/// Per-domain chains: which exit each domain's traffic takes, instead of the
-/// connection's own exit node. Stored in `device.domainExits` (domain → choice);
-/// the VPN engine applies the choices as Xray routing rules, so no native change
-/// was needed: Xray sniffs the domain and its rules run before the catch-all.
+/// Per-domain chains: whether each domain's traffic goes through the chain
+/// (the connection's exit) or direct, instead of following the connection.
+/// Stored in `device.domainExits` (domain → choice); the VPN engine applies
+/// the choices as Xray routing rules, so no native change was needed: Xray
+/// sniffs the domain and its rules run before the catch-all.
 ///
-/// A choice is 'default' (the connection's exit), 'worker' (the connection itself,
-/// no extra hop), 'psiphon', 'tor', or 'chain:<id>' (a saved chain proxy). Only
-/// one of Psiphon/Tor can run as an extra exit process: when domains use both,
-/// Tor runs and the Psiphon domains follow the connection's exit. A domain also
-/// covers its subdomains.
+/// A choice is 'default' (through the chain: the connection's exit, whatever
+/// it is) or 'worker' (no chain: the connection itself, no extra hop). A
+/// domain also covers its subdomains.
 class PerDomainChainsPage extends StatefulWidget {
   const PerDomainChainsPage({super.key});
 
@@ -26,8 +25,9 @@ class _PerDomainChainsPageState extends State<PerDomainChainsPage> {
   /// The exit label for [value], with the saved chains' names.
   static String _label(String value, List<ChainProxy> chains) =>
       switch (value) {
-        'default' => 'Follow connection exit',
-        'worker' => 'Connection only',
+        'default' => 'Through chain',
+        'worker' => 'No chain',
+        // Older installs may hold a specific exit; it still shows.
         'psiphon' => 'Psiphon',
         'tor' => 'Tor',
         final v when v.startsWith('chain:') =>
@@ -36,7 +36,7 @@ class _PerDomainChainsPageState extends State<PerDomainChainsPage> {
                   .firstOrNull
                   ?.name ??
               'Chain proxy (removed)',
-        _ => 'Follow connection exit',
+        _ => 'Through chain',
       };
 
   @override
@@ -68,43 +68,20 @@ class _PerDomainChainsPageState extends State<PerDomainChainsPage> {
                 children: [
                   RadioListTile<String>(
                     value: 'default',
-                    title: const Text('Follow connection exit'),
-                    subtitle: const Text('Same exit as the connection'),
+                    title: const Text('Through chain'),
+                    subtitle: const Text(
+                      "Uses the connection's exit node",
+                    ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
                   RadioListTile<String>(
                     value: 'worker',
-                    title: const Text('Connection only'),
-                    subtitle: const Text('No extra hop, e.g. MASQUE only'),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  RadioListTile<String>(
-                    value: 'psiphon',
-                    title: const Text('Psiphon'),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  RadioListTile<String>(
-                    value: 'tor',
-                    title: const Text('Tor'),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  if (chains.isNotEmpty)
-                    for (final chain in chains)
-                      RadioListTile<String>(
-                        value: 'chain:${chain.id}',
-                        title: Text(chain.name),
-                        subtitle: const Text('Chain proxy'),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                        ),
-                      ),
-                  if (chains.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
-                      child: Text(
-                        'No chain proxies yet. Add one in Settings → Chain proxies.',
-                      ),
+                    title: const Text('No chain'),
+                    subtitle: const Text(
+                      'Direct through the connection, no extra hop',
                     ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
                 ],
               ),
             ),
@@ -118,8 +95,7 @@ class _PerDomainChainsPageState extends State<PerDomainChainsPage> {
 
     Future<void> addDomain() async {
       final controller = TextEditingController();
-      var choice = 'tor';
-      final result = await showDialog<(String, String)?>(
+      final result = await showDialog<String?>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Add domain'),
@@ -135,49 +111,11 @@ class _PerDomainChainsPageState extends State<PerDomainChainsPage> {
                 keyboardType: TextInputType.url,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) =>
-                    Navigator.of(context).pop((controller.text, choice)),
+                    Navigator.of(context).pop(controller.text),
               ),
               const SizedBox(height: 8),
-              StatefulBuilder(
-                builder: (context, setDialogState) => RadioGroup<String>(
-                  groupValue: choice,
-                  onChanged: (v) =>
-                      setDialogState(() => choice = v ?? choice),
-                  child: Column(
-                    children: [
-                      RadioListTile<String>(
-                        value: 'worker',
-                        title: const Text('Connection only'),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 0,
-                        ),
-                      ),
-                      RadioListTile<String>(
-                        value: 'psiphon',
-                        title: const Text('Psiphon'),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 0,
-                        ),
-                      ),
-                      RadioListTile<String>(
-                        value: 'tor',
-                        title: const Text('Tor'),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 0,
-                        ),
-                      ),
-                      if (chains.isNotEmpty)
-                        for (final chain in chains)
-                          RadioListTile<String>(
-                            value: 'chain:${chain.id}',
-                            title: Text(chain.name),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 0,
-                            ),
-                          ),
-                    ],
-                  ),
-                ),
+              const Text(
+                "The domain goes direct, without the connection's exit.",
               ),
             ],
           ),
@@ -187,15 +125,14 @@ class _PerDomainChainsPageState extends State<PerDomainChainsPage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop((controller.text, choice)),
+              onPressed: () => Navigator.of(context).pop(controller.text),
               child: const Text('Add'),
             ),
           ],
         ),
       );
       if (result == null) return;
-      final domain = result.$1
+      final domain = result
           .trim()
           .toLowerCase()
           .replaceFirst(RegExp(r'^https?://'), '')
@@ -212,7 +149,7 @@ class _PerDomainChainsPageState extends State<PerDomainChainsPage> {
         }
         return;
       }
-      setExit(domain, result.$2);
+      setExit(domain, 'worker');
     }
 
     final domains = exits.keys.toList()..sort();
@@ -258,20 +195,9 @@ class _PerDomainChainsPageState extends State<PerDomainChainsPage> {
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
-              'Choose an exit per domain. Other domains follow the '
-              "connection's exit, so only the domains listed here take the "
-              'extra hop. One domain also covers its subdomains.',
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-            child: Text(
-              'Only one of Psiphon or Tor can run as the extra exit. When '
-              'domains use both, Tor runs and the Psiphon domains follow the '
-              "connection's exit.",
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              'Domains listed here go direct, without the connection\'s '
+              "exit. Other domains follow the connection's exit. One domain "
+              'also covers its subdomains.',
             ),
           ),
           Padding(

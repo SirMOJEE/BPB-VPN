@@ -169,6 +169,9 @@ class _Metrics extends StatelessWidget {
 
     final refreshIps = state.isConnected ? state.refreshMyIps : null;
     final twoIps = state.mode.needsWorker && state.exitNode == ExitNode.worker;
+    // With an exit, the panel shows the exit IP and the worker-direct IP side by side.
+    final chainIps =
+        state.mode.needsWorker && state.exitNode != ExitNode.worker;
     // This phone's LAN address (always shown); with LAN connections allowed, other
     // devices use it with port 10808 for the SOCKS/HTTP proxy.
     final lanIp = state.lanIp;
@@ -213,7 +216,8 @@ class _Metrics extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         // Through the worker alone, Cloudflare-hosted sites see the proxy IP and others the
-        // worker's exit IP. WARP, Serverless and the chain / Psiphon exits have a single exit IP.
+        // worker's exit IP. With an exit, one IP goes through the chain and one straight
+        // through the worker. WARP and Serverless have a single exit IP.
         Row(
           children: twoIps
               ? [
@@ -234,6 +238,25 @@ class _Metrics extends StatelessWidget {
                     ),
                   ),
                 ]
+              : chainIps
+              ? [
+                  Expanded(
+                    child: _Metric(
+                      icon: Symbols.location_on_rounded,
+                      label: 'My IP (chain)',
+                      value: ip(ips?.other),
+                      onTap: refreshIps,
+                    ),
+                  ),
+                  Expanded(
+                    child: _Metric(
+                      icon: Symbols.location_on_rounded,
+                      label: 'My IP (direct)',
+                      value: ip(ips?.direct),
+                      onTap: refreshIps,
+                    ),
+                  ),
+                ]
               : [
                   Expanded(
                     child: _Metric(
@@ -247,7 +270,7 @@ class _Metrics extends StatelessWidget {
                 ],
         ),
         // Both target IPs fill the row, so the LAN IP gets its own.
-        if (twoIps) ...[const SizedBox(height: 14), lan],
+        if (twoIps || chainIps) ...[const SizedBox(height: 14), lan],
       ],
     );
   }

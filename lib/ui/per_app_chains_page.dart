@@ -5,12 +5,18 @@ import '../models/settings.dart';
 import '../services/vpn_channel.dart';
 import '../state/app_state.dart';
 
-/// Per-app chains: which exit each app's traffic takes, instead of the connection's
-/// own exit node. Stored in `device.perAppProxy.exits` (package name → choice); the VPN
-/// engine applies the choices (per-app routing).
+/// Per-app chains: whether each app's traffic goes through the chain (the
+/// connection's exit) or not. Stored in `device.perAppProxy.exits` (package
+/// name → choice). NOTE: the tunnel does not apply per-app choices yet —
+/// Xray's tun inbound cannot see which app traffic belongs to; that needs a
+/// native per-app dispatch layer. The domain chains do work in the tunnel.
 ///
-/// A choice is 'default' (the connection's exit), 'worker' (the connection itself, no
-/// extra hop), 'psiphon', 'tor', or 'chain:<id>' (a saved chain proxy).
+/// A choice is 'default' (through the chain: the connection's exit, whatever
+/// it is — Psiphon, Tor or a chain proxy) or 'worker' (no chain: the
+/// connection itself, no extra hop).
+///
+/// Long-press an app to select several at once, then set one exit for all of them.
+/// The ⋮ menu sets all apps at once (through chain / no chain).
 class PerAppChainsPage extends StatefulWidget {
   const PerAppChainsPage({super.key});
 
@@ -23,11 +29,29 @@ class _PerAppChainsPageState extends State<PerAppChainsPage> {
   String _query = '';
   bool _showSystem = true;
 
+  /// Packages selected for a bulk exit change. Empty = normal (single-app) mode.
+  final Set<String> _selected = {};
+
+  /// Apps currently visible (after the search/system filters), as last rendered.
+  /// Used by "Select all" and by the bulk exit picker.
+  List<InstalledApp> _visibleApps = [];
+
+  void _toggle(String pkg) {
+    setState(() {
+      if (_selected.contains(pkg)) {
+        _selected.remove(pkg);
+      } else {
+        _selected.add(pkg);
+      }
+    });
+  }
+
   /// The exit label for [value], with the saved chains' names.
   static String _label(String value, List<ChainProxy> chains) =>
       switch (value) {
-        'default' => 'Follow connection exit',
-        'worker' => 'Connection only',
+        'default' => 'Through chain',
+        'worker' => 'No chain',
+        // Older installs may hold a specific exit; it still shows.
         'psiphon' => 'Psiphon',
         'tor' => 'Tor',
         final v when v.startsWith('chain:') =>
@@ -36,7 +60,7 @@ class _PerAppChainsPageState extends State<PerAppChainsPage> {
                   .firstOrNull
                   ?.name ??
               'Chain proxy (removed)',
-        _ => 'Follow connection exit',
+        _ => 'Through chain',
       };
 
   @override
@@ -44,23 +68,36 @@ class _PerAppChainsPageState extends State<PerAppChainsPage> {
     final state = AppScope.of(context);
     final exits = state.device.perAppExits;
     final chains = state.profile.chains;
+    final selecting = _selected.isNotEmpty;
 
-    void setExit(String pkg, String value) {
+    void setExits(Iterable<String> pkgs, String value) {
       final next = Map<String, String>.from(exits);
-      if (value == 'default') {
-        next.remove(pkg);
-      } else {
-        next[pkg] = value;
+      for (final pkg in pkgs) {
+        if (value == 'default') {
+          next.remove(pkg);
+        } else {
+          next[pkg] = value;
+        }
       }
       state.write('device.perAppProxy.exits', next);
     }
 
-    Future<void> pickExit(InstalledApp app) async {
-      final current = exits[app.packageName] ?? 'default';
+    Future<void> pickExit(List<InstalledApp> apps) async {
+      // Preselect the shared exit when all picked apps agree; otherwise none.
+      final String? current = apps.length == 1
+          ? exits[apps.single.packageName] ?? 'default'
+          : () {
+              final values = apps
+                  .map((a) => exits[a.packageName] ?? 'default')
+                  .toSet();
+              return values.length == 1 ? values.single : null;
+            }();
       final picked = await showDialog<String>(
         context: context,
         builder: (context) => SimpleDialog(
-          title: Text(app.label),
+          title: Text(
+            apps.length == 1 ? apps.single.label : '${apps.length} apps',
+          ),
           children: [
             RadioGroup<String>(
               groupValue: current,
@@ -69,69 +106,119 @@ class _PerAppChainsPageState extends State<PerAppChainsPage> {
                 children: [
                   RadioListTile<String>(
                     value: 'default',
-                    title: const Text('Follow connection exit'),
-                    subtitle: const Text('Same exit as the connection'),
+                    title: const Text('Through chain'),
+                    subtitle: const Text(
+                      "Uses the connection's exit node",
+                    ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
                   RadioListTile<String>(
                     value: 'worker',
-                    title: const Text('Connection only'),
-                    subtitle: const Text('No extra hop, e.g. MASQUE only'),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  RadioListTile<String>(
-                    value: 'psiphon',
-                    title: const Text('Psiphon'),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  RadioListTile<String>(
-                    value: 'tor',
-                    title: const Text('Tor'),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  if (chains.isNotEmpty)
-                    for (final chain in chains)
-                      RadioListTile<String>(
-                        value: 'chain:${chain.id}',
-                        title: Text(chain.name),
-                        subtitle: const Text('Chain proxy'),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                        ),
-                      ),
-                  if (chains.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
-                      child: Text(
-                        'No chain proxies yet. Add one in Settings → Chain proxies.',
-                      ),
+                    title: const Text('No chain'),
+                    subtitle: const Text(
+                      'Direct through the connection, no extra hop',
                     ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
                 ],
               ),
             ),
           ],
         ),
       );
-      if (picked != null && picked != current) {
-        setExit(app.packageName, picked);
+      if (picked != null) {
+        setExits(apps.map((a) => a.packageName), picked);
+        if (selecting) setState(() => _selected.clear());
       }
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Per-app chains'),
+        leading: selecting
+            ? IconButton(
+                tooltip: 'Cancel selection',
+                icon: const Icon(Symbols.close_rounded),
+                onPressed: () => setState(() => _selected.clear()),
+              )
+            : null,
+        title: Text(
+          selecting ? '${_selected.length} selected' : 'Per-app chains',
+        ),
         actions: [
-          if (exits.isNotEmpty)
+          if (selecting) ...[
+            TextButton(
+              onPressed: () =>
+                  setState(() => _selected.addAll(
+                    _visibleApps.map((a) => a.packageName),
+                  )),
+              child: const Text('Select all'),
+            ),
             IconButton(
-              tooltip: 'Reset all to default',
-              icon: const Icon(Symbols.delete_outline_rounded),
-              onPressed: () async {
+              tooltip: 'Set exit for selected',
+              icon: const Icon(Symbols.alt_route_rounded),
+              onPressed: () {
+                final apps = _visibleApps
+                    .where((a) => _selected.contains(a.packageName))
+                    .toList();
+                if (apps.isNotEmpty) pickExit(apps);
+              },
+            ),
+          ] else ...[
+            if (exits.isNotEmpty)
+              IconButton(
+                tooltip: 'Reset all to default',
+                icon: const Icon(Symbols.delete_outline_rounded),
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Reset per-app chains?'),
+                      content: const Text(
+                        'Every app follows the connection exit again.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: const Text('Reset'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok == true) {
+                    state.write(
+                      'device.perAppProxy.exits',
+                      <String, String>{},
+                    );
+                  }
+                },
+              ),
+            IconButton(
+              tooltip: _showSystem ? 'Hide system apps' : 'Show system apps',
+              icon: Icon(
+                _showSystem ? Symbols.android_rounded : Symbols.apps_rounded,
+              ),
+              onPressed: () => setState(() => _showSystem = !_showSystem),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Set all apps at once',
+              icon: const Icon(Symbols.more_vert_rounded),
+              onSelected: (value) async {
+                final all = await _apps;
+                if (!context.mounted) return;
                 final ok = await showDialog<bool>(
                   context: context,
                   builder: (context) => AlertDialog(
-                    title: const Text('Reset per-app chains?'),
+                    title: Text(
+                      value == 'worker'
+                          ? 'No chain for all apps?'
+                          : 'Chain for all apps?',
+                    ),
                     content: const Text(
-                      'Every app follows the connection exit again.',
+                      'You can still change single apps after that.',
                     ),
                     actions: [
                       TextButton(
@@ -140,23 +227,30 @@ class _PerAppChainsPageState extends State<PerAppChainsPage> {
                       ),
                       FilledButton(
                         onPressed: () => Navigator.of(context).pop(true),
-                        child: const Text('Reset'),
+                        child: const Text('Apply'),
                       ),
                     ],
                   ),
                 );
                 if (ok == true) {
-                  state.write('device.perAppProxy.exits', <String, String>{});
+                  setExits(
+                    all.map((a) => a.packageName),
+                    value == 'worker' ? 'worker' : 'default',
+                  );
                 }
               },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'default',
+                  child: Text('All through chain'),
+                ),
+                PopupMenuItem(
+                  value: 'worker',
+                  child: Text('All no chain'),
+                ),
+              ],
             ),
-          IconButton(
-            tooltip: _showSystem ? 'Hide system apps' : 'Show system apps',
-            icon: Icon(
-              _showSystem ? Symbols.android_rounded : Symbols.apps_rounded,
-            ),
-            onPressed: () => setState(() => _showSystem = !_showSystem),
-          ),
+          ],
         ],
       ),
       body: Column(
@@ -165,8 +259,12 @@ class _PerAppChainsPageState extends State<PerAppChainsPage> {
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
-              'Choose an exit per app. Apps without a choice follow the '
-              "connection's exit. Only apps routed through the VPN are affected.",
+              'Choose whether each app goes through the chain — the '
+              "connection's exit node, whatever it is. Apps without a choice "
+              "follow the connection's exit. Long-press to select several "
+              'apps at once, then set one exit for all of them. The ⋮ menu '
+              'sets all apps at once. Only apps routed through the VPN are '
+              'affected.',
             ),
           ),
           Padding(
@@ -218,13 +316,21 @@ class _PerAppChainsPageState extends State<PerAppChainsPage> {
                                 b.label.toLowerCase(),
                               );
                       });
+                _visibleApps = apps;
                 return ListView.builder(
                   itemCount: apps.length,
                   itemBuilder: (context, i) {
                     final app = apps[i];
                     final custom = exits.containsKey(app.packageName);
+                    final selected = _selected.contains(app.packageName);
                     return ListTile(
-                      leading: app.icon == null
+                      selected: selected,
+                      leading: selecting
+                          ? Checkbox(
+                              value: selected,
+                              onChanged: (_) => _toggle(app.packageName),
+                            )
+                          : app.icon == null
                           ? const Icon(Symbols.android_rounded, size: 40)
                           : Image.memory(
                               app.icon!,
@@ -258,7 +364,10 @@ class _PerAppChainsPageState extends State<PerAppChainsPage> {
                           const Icon(Symbols.chevron_right_rounded, size: 20),
                         ],
                       ),
-                      onTap: () => pickExit(app),
+                      onTap: () => selecting
+                          ? _toggle(app.packageName)
+                          : pickExit([app]),
+                      onLongPress: () => _toggle(app.packageName),
                     );
                   },
                 );
