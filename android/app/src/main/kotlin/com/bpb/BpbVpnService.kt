@@ -22,6 +22,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import xray.PerAppResolver
+import xray.Xray
 
 class BpbVpnService : VpnService() {
 
@@ -188,7 +190,11 @@ class BpbVpnService : VpnService() {
                 ?: throw IllegalStateException("VPN permission was not granted")
             tun = fd
 
-            CoreManager.controller.start(config, fd.fd)
+            // The per-app engine owns the TUN fd; Xray runs without one
+            // (fd 0) and serves the two dispatch inbounds (app-chain-in /
+            // app-direct-in, see XrayConfigBuilder.perAppEngine).
+            CoreManager.controller.start(config, 0)
+            Xray.startTunEngine(fd.fd.toLong(), options.mtu.toLong(), perAppResolver(options))
             startExit(options)
             onCoreStarted(options)
         } catch (e: Exception) {
@@ -432,6 +438,30 @@ class BpbVpnService : VpnService() {
         }
     }
 
+    /**
+     * The tun2socks engine asks, per UID, whether the app goes through the
+     * connection's exit (0) or direct (1). A UID shared by several packages
+     * (system / sharedUserId) falls back to the connection's exit unless one
+     * of its packages is set to "no chain".
+     */
+    private fun perAppResolver(options: ConfigStore.Options): PerAppResolver {
+        val exits = options.perAppExits
+        return object : PerAppResolver {
+            override fun exitForUID(uid: Int): Int {
+                if (exits.isEmpty()) return 0
+                val pkgs = try {
+                    packageManager.getPackagesForUid(uid)
+                } catch (e: Exception) {
+                    null
+                } ?: return 0
+                for (pkg in pkgs) {
+                    if (exits[pkg] == "worker") return 1
+                }
+                return 0
+            }
+        }
+    }
+
     private fun stopVpn() {
         if (CoreManager.state == CoreManager.State.DISCONNECTED) {
             stopSelfCompat()
@@ -467,6 +497,11 @@ class BpbVpnService : VpnService() {
         TrafficMeter.reset()
         ExitProcess.stop()
         BrowserDialer.stop()
+        try {
+            Xray.stopTunEngine()
+        } catch (e: Exception) {
+            Log.w(TAG, "stopTunEngine failed", e)
+        }
         try {
             if (CoreManager.controller.isRunning) CoreManager.controller.stop()
         } catch (e: Exception) {

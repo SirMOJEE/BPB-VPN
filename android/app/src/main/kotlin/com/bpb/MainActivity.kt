@@ -168,6 +168,7 @@ class MainActivity : FlutterActivity() {
                         psiphonConfig = call.argument<String>("psiphonConfig"),
                         browserDialer = call.argument<Boolean>("browserDialer") ?: false,
                         verifyConnection = call.argument<Boolean>("verifyConnection") ?: false,
+                        perAppExits = ConfigStore.parsePerAppExits(call.argument<String>("perAppExits")),
                     )
                 )
                 BpbVpnService.start(this)

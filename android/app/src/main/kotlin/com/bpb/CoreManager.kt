@@ -10,6 +10,7 @@ import xray.Xray
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArraySet
+import org.json.JSONObject
 
 /**
  * Process-wide owner of the Xray core instance and the VPN connection state.
@@ -220,6 +221,8 @@ object ConfigStore {
         val browserDialer: Boolean = false,
         /** Verify internet reachability before reporting this connection as connected. */
         val verifyConnection: Boolean = false,
+        /** Per-app chain choices: package -> 'default' (chain) or 'worker' (no chain). */
+        val perAppExits: Map<String, String> = emptyMap(),
     )
 
     fun save(context: Context, config: String, options: Options) {
@@ -239,6 +242,7 @@ object ConfigStore {
             .putString("psiphonConfig", options.psiphonConfig)
             .putBoolean("browserDialer", options.browserDialer)
             .putBoolean("verifyConnection", options.verifyConnection)
+            .putString("perAppExits", JSONObject(options.perAppExits).toString())
             .apply()
     }
 
@@ -272,6 +276,18 @@ object ConfigStore {
             psiphonConfig = prefs.getString("psiphonConfig", null),
             browserDialer = prefs.getBoolean("browserDialer", false),
             verifyConnection = prefs.getBoolean("verifyConnection", false),
+            perAppExits = parsePerAppExits(prefs.getString("perAppExits", null)),
         )
+    }
+
+    /** Parses the per-app exits JSON (package -> 'default' | 'worker'); {} on bad input. */
+    fun parsePerAppExits(raw: String?): Map<String, String> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return try {
+            val json = JSONObject(raw)
+            buildMap { json.keys().forEach { key -> put(key, json.optString(key)) } }
+        } catch (e: Exception) {
+            emptyMap()
+        }
     }
 }
