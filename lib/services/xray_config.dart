@@ -170,6 +170,18 @@ class XrayConfigBuilder {
   /// bypasses the connection's exit (see the 'direct-in' routing rule).
   static const directProxyPort = 10809;
 
+  /// The per-app tunnel engine (tun2socks, native side) dials these two
+  /// mixed inbounds instead of Xray owning the TUN fd: 'app-chain-in' takes
+  /// the connection's exit, 'app-direct-in' takes the connection itself.
+  /// Must match the Go wrapper's appChainAddr / appDirectAddr.
+  static const appChainProxyPort = 10810;
+  static const appDirectProxyPort = 10811;
+
+  /// The per-app engine replaces Xray's 'tun' inbound. One place to flip
+  /// back to the old behaviour (Xray owns the TUN fd) if the engine
+  /// misbehaves: set false and the config is exactly as before.
+  static const perAppEngine = true;
+
   /// Psiphon / Tor exit (see ExitProcess.kt): it dials its servers through the psiphon-in /
   /// tor-in inbound, and serves SOCKS5 for the exit outbound (Psiphon: TCP and UDP; Tor: TCP).
   static const exitUpstreamPort = 10828;
@@ -1132,7 +1144,27 @@ class XrayConfigBuilder {
   /// The VPN device (not in proxy mode) and the local SOCKS/HTTP proxy.
   List<Map<String, dynamic>> _localInbounds(Map<String, dynamic> sniffing) => [
     // Proxy mode has no VPN device: only the mixed inbound below.
-    if (device.appMode != AppMode.proxy)
+    // Engine mode: the native tun2socks engine owns the TUN fd and dials
+    // these two inbounds; Xray has no 'tun' inbound.
+    if (device.appMode != AppMode.proxy && perAppEngine) ...[
+      {
+        'tag': 'app-chain-in',
+        'listen': '127.0.0.1',
+        'port': appChainProxyPort,
+        'protocol': 'mixed',
+        'settings': {'auth': 'noauth', 'udp': true},
+        'sniffing': sniffing,
+      },
+      {
+        'tag': 'app-direct-in',
+        'listen': '127.0.0.1',
+        'port': appDirectProxyPort,
+        'protocol': 'mixed',
+        'settings': {'auth': 'noauth', 'udp': true},
+        'sniffing': sniffing,
+      },
+    ],
+    if (device.appMode != AppMode.proxy && !perAppEngine)
       {
         'tag': 'tun',
         'protocol': 'tun',
@@ -1407,7 +1439,7 @@ class XrayConfigBuilder {
     final exitWorkerlessRules = <Map<String, dynamic>>[];
     final rules = <Map<String, dynamic>>[
       {
-        'inboundTag': ['tun', 'mixed-in'],
+        'inboundTag': ['tun', 'mixed-in', 'app-chain-in', 'app-direct-in'],
         'port': 53,
         'outboundTag': dnsOutbound,
       },
@@ -1558,6 +1590,19 @@ class XrayConfigBuilder {
     final domainStrategy = profile.routing.domainStrategy.xray;
     final network = tcpOnly ? 'tcp' : 'tcp,udp';
     final outbound = _hasExit ? 'exit' : outTag;
+
+    // Per-app engine: flows that entered through a dispatch inbound take
+    // the app's choice (block / bypass / domain rules above already won).
+    // Only needed when there is an exit to choose between; without one,
+    // the catch-all below already takes the connection itself.
+    if (perAppEngine && _hasExit) {
+      add(
+        inboundTag: ['app-chain-in'],
+        outbound: outbound,
+        balancer: isBalancer && !_hasExit,
+      );
+      add(inboundTag: ['app-direct-in'], outbound: outTag, balancer: isBalancer);
+    }
 
     add(
       ip: domainStrategy == 'AsIs' ? null : ['0.0.0.0/0', '::/0'],
