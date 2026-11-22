@@ -808,13 +808,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Looks up the exit IPs through the tunnel (panel's "My IP").
+  /// Looks up the exit IPs through the tunnel (panel's "My IP"). When the
+  /// connection has an exit, the worker-direct IP is looked up too.
   Future<void> refreshMyIps() async {
     if (!isConnected || loadingIps) return;
     loadingIps = true;
     notifyListeners();
     try {
-      myIps = await fetchMyIps(proxyPort: LocalProxy.port);
+      myIps = await fetchMyIps(
+        proxyPort: LocalProxy.port,
+        directPort: mode.needsWorker && exitNode != ExitNode.worker
+            ? XrayConfigBuilder.directProxyPort
+            : null,
+      );
     } finally {
       loadingIps = false;
       if (!isConnected) myIps = null;
