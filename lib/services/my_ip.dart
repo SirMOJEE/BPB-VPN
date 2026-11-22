@@ -9,17 +9,24 @@ import 'local_proxy.dart';
 /// An exit IP and its two-letter country code (if known).
 typedef IpInfo = ({String ip, String? country});
 
-/// The two exit IPs the BPB panel shows: one for sites behind Cloudflare
-/// (reached through the worker's proxy IP) and one for all other sites.
+/// The exit IPs the BPB panel shows: one for sites behind Cloudflare
+/// (reached through the worker's proxy IP), one for all other sites, and —
+/// when the connection has an exit — one straight through the worker,
+/// bypassing the exit.
 class MyIps {
   final IpInfo? cloudflare;
   final IpInfo? other;
-  const MyIps({this.cloudflare, this.other});
+
+  /// The worker-direct IP (traffic bypassing the connection's exit).
+  /// Null when the connection has no exit.
+  final IpInfo? direct;
+  const MyIps({this.cloudflare, this.other, this.direct});
 }
 
-/// Looks up both IPs through [proxyPort] (the tunnel's local proxy); the app's own
+/// Looks up the IPs through [proxyPort] (the tunnel's local proxy); the app's own
 /// traffic is excluded from the VPN, so a direct request would show the real IP.
-Future<MyIps> fetchMyIps({required int proxyPort}) async {
+/// When [directPort] is given, the worker-direct IP is looked up through it.
+Future<MyIps> fetchMyIps({required int proxyPort, int? directPort}) async {
   final client = proxiedClient(proxyPort);
   final nocache = DateTime.now().millisecondsSinceEpoch;
 
@@ -62,9 +69,32 @@ Future<MyIps> fetchMyIps({required int proxyPort}) async {
     return ipApi(ip: ip);
   }
 
+  Future<IpInfo?> directIp() async {
+    if (directPort == null) return null;
+    // checkip.amazonaws.com is not behind Cloudflare, so it sees the
+    // worker's egress IP rather than a Cloudflare proxy IP.
+    final directClient = proxiedClient(directPort);
+    try {
+      final res = await directClient
+          .get(Uri.parse('https://checkip.amazonaws.com'))
+          .timeout(const Duration(seconds: 20));
+      final ip = res.statusCode == 200 ? res.body.trim() : null;
+      if (ip == null || InternetAddress.tryParse(ip) == null) return null;
+      return ipApi(ip: ip);
+    } catch (_) {
+      return null;
+    } finally {
+      directClient.close();
+    }
+  }
+
   try {
-    final results = await Future.wait([cloudflareTargets(), ipApi()]);
-    return MyIps(cloudflare: results[0], other: results[1]);
+    final results = await Future.wait([cloudflareTargets(), ipApi(), directIp()]);
+    return MyIps(
+      cloudflare: results[0],
+      other: results[1],
+      direct: results[2],
+    );
   } finally {
     client.close();
   }

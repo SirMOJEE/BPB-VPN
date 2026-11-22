@@ -166,6 +166,10 @@ class XrayConfigBuilder {
   static const _probeSamples = 3;
   static const localProxyPort = 10808;
 
+  /// Local proxy for the app's own direct IP check: traffic entering here
+  /// bypasses the connection's exit (see the 'direct-in' routing rule).
+  static const directProxyPort = 10809;
+
   /// Psiphon / Tor exit (see ExitProcess.kt): it dials its servers through the psiphon-in /
   /// tor-in inbound, and serves SOCKS5 for the exit outbound (Psiphon: TCP and UDP; Tor: TCP).
   static const exitUpstreamPort = 10828;
@@ -1153,6 +1157,15 @@ class XrayConfigBuilder {
       },
       'sniffing': sniffing,
     },
+    {
+      // Lets the app check the worker-direct IP, bypassing the exit.
+      'tag': 'direct-in',
+      'listen': '127.0.0.1',
+      'port': directProxyPort,
+      'protocol': 'mixed',
+      'settings': {'auth': 'noauth', 'udp': true},
+      'sniffing': sniffing,
+    },
   ];
 
   /// A leastPing balancer. Until the first pings are in (a few seconds after connecting) it
@@ -1423,6 +1436,13 @@ class XrayConfigBuilder {
     }
 
     final outTag = isBalancer ? 'all-proxies' : 'proxy';
+
+    // The app's own direct IP check enters through 'direct-in' and leaves
+    // through the connection itself, bypassing the exit. Only when the
+    // connection has an exit to bypass.
+    if (_hasExit) {
+      add(inboundTag: ['direct-in'], outbound: outTag, balancer: isBalancer);
+    }
 
     // Through the connection itself: the remote DNS over VLESS / WARP (also with a Psiphon / Tor
     // exit, like BPB with a chain proxy, since the connection is up first), and Psiphon / Tor
