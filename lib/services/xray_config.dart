@@ -1464,7 +1464,7 @@ class XrayConfigBuilder {
     final exitWorkerlessRules = <Map<String, dynamic>>[];
     final rules = <Map<String, dynamic>>[
       {
-        'inboundTag': ['tun', 'mixed-in', 'app-chain-in', 'app-direct-in'],
+        'inboundTag': ['app-chain-in', 'app-direct-in', 'mixed-in'],
         'port': 53,
         'outboundTag': dnsOutbound,
       },
