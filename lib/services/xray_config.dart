@@ -903,10 +903,23 @@ class XrayConfigBuilder {
       'routeOnly': true,
     };
     final localInbounds = _localInbounds(sniffing);
-    final tun = localInbounds.length > 1 ? localInbounds.first : null;
-    final mixedIn = localInbounds.last;
+    // Engine mode: Xray has no 'tun' inbound; the native engine dials the
+    // two dispatch inbounds instead, so they go up front in its place.
+    // Pick by tag: the list order changed (and 'direct-in' is now last),
+    // so positional picks would grab the wrong inbound.
+    final dispatchInbounds = localInbounds
+        .where(
+          (i) => i['tag'] == 'app-chain-in' || i['tag'] == 'app-direct-in',
+        )
+        .toList();
+    final tun = localInbounds.where((i) => i['tag'] == 'tun').firstOrNull;
+    final mixedIn = localInbounds.firstWhere((i) => i['tag'] == 'mixed-in');
     final inbounds = (config['inbounds'] as List).cast<Map<String, dynamic>>();
-    if (tun != null) inbounds.insert(0, tun);
+    if (tun != null) {
+      inbounds.insert(0, tun);
+    } else {
+      inbounds.insertAll(0, dispatchInbounds);
+    }
 
     final outbounds = (config['outbounds'] as List)
         .cast<Map<String, dynamic>>();
@@ -928,6 +941,17 @@ class XrayConfigBuilder {
         } else {
           rule.remove('inboundTag');
         }
+      }
+      // Engine mode: rules that matched the 'tun' inbound must match the
+      // dispatch inbounds instead (Xray no longer has a 'tun' inbound).
+      if (dispatchInbounds.isNotEmpty &&
+          inboundTags != null &&
+          inboundTags.contains('tun')) {
+        rule['inboundTag'] = [
+          'app-chain-in',
+          'app-direct-in',
+          ...inboundTags.where((t) => t != 'tun'),
+        ];
       }
 
       switch (rule['ruleTag']) {
@@ -967,7 +991,8 @@ class XrayConfigBuilder {
       );
       exitIn['port'] = 10828;
       exitIn['tag'] = _exitInbound;
-      inbounds.insert(1, mixedIn);
+      // After 'tun' (or the two dispatch inbounds) at the front.
+      inbounds.insert(tun != null ? 1 : 1 + dispatchInbounds.length, mixedIn);
 
       final exitOutbounds = [
         {
