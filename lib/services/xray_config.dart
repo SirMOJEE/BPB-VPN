@@ -991,8 +991,9 @@ class XrayConfigBuilder {
       );
       exitIn['port'] = 10828;
       exitIn['tag'] = _exitInbound;
-      // After 'tun' (or the two dispatch inbounds) at the front.
-      inbounds.insert(tun != null ? 1 : 1 + dispatchInbounds.length, mixedIn);
+      // Right after 'tun' (or the dispatch inbounds) at the front, as before.
+      final frontCount = tun != null ? 1 : dispatchInbounds.length;
+      inbounds.insert(frontCount == 0 ? 1 : frontCount, mixedIn);
 
       final exitOutbounds = [
         {
